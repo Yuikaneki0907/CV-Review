@@ -1,0 +1,25 @@
+# Logs
+backend/logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Environment
+.env
+.venv/
+venv/
+
+# Uploads
+uploads/
+
+# Node
+node_modules/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp

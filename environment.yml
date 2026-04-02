@@ -1,0 +1,35 @@
+name: cv-review
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - postgresql=16
+  - redis-server
+  - nodejs=20
+  - pip:
+    # Web framework
+    - fastapi==0.115.6
+    - uvicorn[standard]==0.34.0
+    # Database
+    - sqlalchemy==2.0.36
+    - asyncpg==0.30.0
+    - alembic==1.14.1
+    # Task Queue
+    - celery[redis]==5.4.0
+    - redis==5.2.1
+    # Auth
+    - passlib[bcrypt]==1.7.4
+    - python-jose[cryptography]==3.3.0
+    - python-multipart==0.0.19
+    # AI
+    - google-genai==1.7.0
+    # File parsing
+    - pymupdf==1.25.3
+    - python-docx==1.1.2
+    # Utils
+    - pydantic==2.10.4
+    - pydantic-settings==2.7.1
+    - numpy==2.2.1
+    - python-dotenv==1.0.1
