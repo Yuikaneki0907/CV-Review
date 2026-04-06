@@ -19,4 +19,7 @@ celery_app.conf.update(
     enable_utc=True,
     task_track_started=True,
     broker_connection_retry_on_startup=True,
+    # ── Crash recovery: only ack after task finishes ──
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
 )

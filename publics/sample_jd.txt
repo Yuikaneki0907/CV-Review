@@ -1,0 +1,46 @@
+Job Title: AI/ML Engineer (Junior/Mid-level)
+Company: TechVN Solutions
+Location: Hanoi, Vietnam
+
+About Us:
+TechVN Solutions is a leading AI company specializing in intelligent data solutions for enterprise clients. We are seeking a talented AI/ML Engineer to join our growing team.
+
+Responsibilities:
+- Design, develop, and deploy machine learning models for production systems
+- Build and maintain data pipelines for training and inference
+- Develop RESTful APIs for ML model serving using FastAPI or Flask
+- Collaborate with data engineers to integrate ML solutions into existing platforms
+- Implement monitoring and logging for deployed models using MLflow
+- Conduct experiments, evaluate model performance, and present findings
+- Write clean, maintainable code following software engineering best practices
+
+Required Technical Skills:
+- Programming: Python (advanced), SQL
+- ML Frameworks: Scikit-learn, PyTorch or TensorFlow
+- Deep Learning: CNN, Transformer architectures, NLP
+- MLOps: MLflow, Docker, CI/CD pipelines
+- Cloud: AWS (SageMaker, EC2, S3) or GCP (Vertex AI)
+- Databases: PostgreSQL, MongoDB, Vector databases (Pinecone, Qdrant, Weaviate)
+- API Development: FastAPI or Flask
+- Version Control: Git/GitHub
+
+Nice to Have:
+- Experience with LLMs (GPT, Gemini, LLaMA) and RAG systems
+- Knowledge of Kubernetes and container orchestration
+- Experience with Apache Kafka or RabbitMQ for message streaming
+- Familiarity with Apache Airflow for workflow orchestration
+- Competitive programming background
+
+Required Qualifications:
+- Bachelor's degree in Computer Science, AI, or related field
+- 1-2 years of experience in ML/AI projects (academic projects acceptable)
+- Strong analytical and problem-solving skills
+- Good communication skills and ability to work in teams
+- Self-motivated learner with a passion for AI/ML
+
+Benefits:
+- Competitive salary: 15-25M VND/month
+- Flexible working hours
+- Learning budget for courses and conferences
+- Health insurance package
+- Modern office in Cau Giay, Hanoi

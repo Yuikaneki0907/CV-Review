@@ -1,6 +1,7 @@
 import difflib
+import json
 import time
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 import numpy as np
@@ -21,13 +22,44 @@ from app.logger import get_logger
 
 logger = get_logger("app.application.analyze_cv")
 
+# Step definitions for streaming
+STEPS = [
+    {"key": "extract", "label": "Trích xuất thông tin CV"},
+    {"key": "score", "label": "Matching & Scoring"},
+    {"key": "rewrite", "label": "Viết lại CV"},
+    {"key": "truthcheck", "label": "Kiểm tra hallucination"},
+    {"key": "diff", "label": "Tạo visual diff"},
+]
+
 
 class AnalyzeCVUseCase:
     """Main orchestrator — runs the full CV analysis pipeline."""
 
-    def __init__(self, analysis_repo: IAnalysisRepository, ai_service: IAIService):
+    def __init__(
+        self,
+        analysis_repo: IAnalysisRepository,
+        ai_service: IAIService,
+        redis_client=None,
+    ):
         self._analysis_repo = analysis_repo
         self._ai_service = ai_service
+        self._redis = redis_client
+
+    def _publish_step(self, analysis_id: UUID, step_key: str, status: str, duration_ms: float = 0):
+        """Publish step progress to Redis for SSE streaming."""
+        if not self._redis:
+            return
+        channel = f"analysis:{analysis_id}"
+        message = json.dumps({
+            "step": step_key,
+            "status": status,
+            "duration_ms": round(duration_ms),
+        })
+        try:
+            self._redis.publish(channel, message)
+            logger.debug("Published to %s: %s", channel, message)
+        except Exception as e:
+            logger.warning("Failed to publish step event: %s", e)
 
     async def execute(self, analysis_id: UUID) -> AnalysisResult:
         """Run the full analysis pipeline for a given analysis record."""
@@ -45,57 +77,80 @@ class AnalyzeCVUseCase:
 
         try:
             # Step 1: Extract structured info from CV and JD
+            self._publish_step(analysis_id, "extract", "running")
             step_start = time.perf_counter()
             cv_extracted = await self._ai_service.extract_cv_info(analysis.cv_text)
             jd_extracted = await self._ai_service.extract_jd_info(analysis.jd_text)
             analysis.cv_extracted = cv_extracted
             analysis.jd_extracted = jd_extracted
-            logger.info("Step 1 DONE (extract): %.0fms", (time.perf_counter() - step_start) * 1000)
+            step_ms = (time.perf_counter() - step_start) * 1000
+            logger.info("Step 1 DONE (extract): %.0fms", step_ms)
+            await self._analysis_repo.update(analysis)
+            self._publish_step(analysis_id, "extract", "done", step_ms)
 
             # Step 2: Match & Score using embeddings
+            self._publish_step(analysis_id, "score", "running")
             step_start = time.perf_counter()
             analysis.score, analysis.skill_analysis = await self._match_and_score(
                 cv_extracted, jd_extracted
             )
+            step_ms = (time.perf_counter() - step_start) * 1000
             logger.info(
                 "Step 2 DONE (score): %.0fms — overall=%.1f",
-                (time.perf_counter() - step_start) * 1000,
+                step_ms,
                 analysis.score.overall,
             )
+            await self._analysis_repo.update(analysis)
+            self._publish_step(analysis_id, "score", "done", step_ms)
 
             # Step 3: Rewrite CV
+            self._publish_step(analysis_id, "rewrite", "running")
             step_start = time.perf_counter()
             analysis.rewritten_cv = await self._ai_service.rewrite_cv(
                 analysis.cv_text, analysis.jd_text, cv_extracted, jd_extracted
             )
-            logger.info("Step 3 DONE (rewrite): %.0fms", (time.perf_counter() - step_start) * 1000)
+            step_ms = (time.perf_counter() - step_start) * 1000
+            logger.info("Step 3 DONE (rewrite): %.0fms", step_ms)
+            await self._analysis_repo.update(analysis)
+            self._publish_step(analysis_id, "rewrite", "done", step_ms)
 
             # Step 4: Truth-Anchoring
+            self._publish_step(analysis_id, "truthcheck", "running")
             step_start = time.perf_counter()
             analysis.hallucination_report = await self._check_truth(
                 analysis.cv_text, analysis.rewritten_cv, cv_extracted
             )
+            step_ms = (time.perf_counter() - step_start) * 1000
             logger.info(
                 "Step 4 DONE (truth-check): %.0fms — warnings=%d, safe=%s",
-                (time.perf_counter() - step_start) * 1000,
+                step_ms,
                 len(analysis.hallucination_report.warnings),
                 analysis.hallucination_report.is_safe,
             )
+            await self._analysis_repo.update(analysis)
+            self._publish_step(analysis_id, "truthcheck", "done", step_ms)
 
             # Step 5: Visual Diff
+            self._publish_step(analysis_id, "diff", "running")
             step_start = time.perf_counter()
             analysis.diff_result = self._compute_diff(
                 analysis.cv_text, analysis.rewritten_cv
             )
+            step_ms = (time.perf_counter() - step_start) * 1000
             logger.info(
                 "Step 5 DONE (diff): %.0fms — segments=%d",
-                (time.perf_counter() - step_start) * 1000,
+                step_ms,
                 len(analysis.diff_result.segments),
             )
+            await self._analysis_repo.update(analysis)
+            self._publish_step(analysis_id, "diff", "done", step_ms)
 
             analysis.mark_completed()
             total_ms = (time.perf_counter() - pipeline_start) * 1000
             logger.info("Pipeline COMPLETE: analysis_id=%s, total=%.0fms", analysis_id, total_ms)
+
+            # Publish pipeline complete event
+            self._publish_step(analysis_id, "pipeline", "done", total_ms)
 
         except Exception as e:
             analysis.mark_failed()
@@ -105,6 +160,7 @@ class AnalyzeCVUseCase:
                 analysis_id, total_ms, str(e),
                 exc_info=True,
             )
+            self._publish_step(analysis_id, "pipeline", "failed", total_ms)
             raise
 
         await self._analysis_repo.update(analysis)
@@ -223,7 +279,7 @@ class AnalyzeCVUseCase:
         warnings = []
         for w in warnings_data:
             level_str = w.get("level", "medium").lower()
-            level = WarningLevel(level_str) if level_str in WarningLevel.__members__.values() else WarningLevel.MEDIUM
+            level = WarningLevel(level_str) if level_str in [e.value for e in WarningLevel] else WarningLevel.MEDIUM
             warnings.append(
                 HallucinationWarning(
                     section=w.get("section", ""),

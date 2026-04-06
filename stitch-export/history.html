@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+
+<html class="light" lang="vi"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lịch sử phân tích | Editorial Intelligence</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-tertiary-container": "#4a2c00",
+              "tertiary-dim": "#764900",
+              "error-dim": "#4e0309",
+              "inverse-surface": "#0b0f10",
+              "on-tertiary": "#fff7f3",
+              "surface-dim": "#cfdce3",
+              "surface-bright": "#f7f9fb",
+              "secondary-fixed": "#6ffbbe",
+              "on-tertiary-fixed-variant": "#563400",
+              "tertiary-fixed-dim": "#e79400",
+              "on-secondary-container": "#005e3f",
+              "on-error": "#fff7f6",
+              "primary-fixed-dim": "#c7d3ff",
+              "secondary": "#006d4a",
+              "on-primary": "#f8f7ff",
+              "inverse-on-surface": "#9a9d9f",
+              "outline": "#717c82",
+              "surface-container-high": "#e1e9ee",
+              "on-primary-fixed": "#003798",
+              "inverse-primary": "#618bff",
+              "error-container": "#fe8983",
+              "primary-fixed": "#dbe1ff",
+              "on-primary-container": "#0048bf",
+              "surface": "#f7f9fb",
+              "tertiary-container": "#f8a010",
+              "on-primary-fixed-variant": "#0050d4",
+              "surface-container-low": "#f0f4f7",
+              "surface-container-highest": "#d9e4ea",
+              "background": "#f7f9fb",
+              "secondary-container": "#6ffbbe",
+              "on-background": "#2a3439",
+              "on-surface-variant": "#566166",
+              "on-secondary": "#e6ffee",
+              "on-surface": "#2a3439",
+              "error": "#9f403d",
+              "primary-dim": "#0048c1",
+              "tertiary-fixed": "#f8a010",
+              "secondary-dim": "#005f40",
+              "surface-container-lowest": "#ffffff",
+              "surface-container": "#e8eff3",
+              "outline-variant": "#a9b4b9",
+              "on-error-container": "#752121",
+              "secondary-fixed-dim": "#5fedb0",
+              "primary": "#0053db",
+              "surface-tint": "#0053db",
+              "tertiary": "#865400",
+              "surface-variant": "#d9e4ea",
+              "on-secondary-fixed": "#004930",
+              "primary-container": "#dbe1ff",
+              "on-secondary-fixed-variant": "#006947",
+              "on-tertiary-fixed": "#2a1700"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; color: #2a3439; }
+        .font-manrope { font-family: 'Manrope', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<header class="bg-[#f7f9fb] dark:bg-slate-900 border-none sticky top-0 z-40">
+<div class="flex justify-between items-center w-full px-8 py-4 max-w-7xl mx-auto">
+<div class="text-xl font-bold tracking-tight text-[#2a3439] dark:text-slate-100 font-manrope">
+                Editorial Intelligence
+            </div>
+<nav class="hidden md:flex items-center space-x-8">
+<a class="text-[#566166] dark:text-slate-400 hover:text-[#2a3439] dark:hover:text-slate-200 transition-colors font-inter text-sm" href="#">Phân tích</a>
+<a class="text-[#0053db] dark:text-blue-400 border-b-2 border-[#0053db] dark:border-blue-400 pb-1 font-semibold font-inter text-sm" href="#">Lịch sử</a>
+</nav>
+<div class="flex items-center space-x-6">
+<span class="hidden lg:block font-inter text-sm text-on-surface-variant">admin@company.com</span>
+<button class="bg-primary hover:bg-primary-dim text-white px-5 py-2 rounded-xl text-sm font-semibold transition-all active:scale-95 duration-150">
+                    Đăng xuất
+                </button>
+</div>
+</div>
+<!-- Separation Logic Line -->
+<div class="bg-[#f0f4f7] dark:bg-slate-800 h-[1px] w-full"></div>
+</header>
+<main class="max-w-7xl mx-auto px-8 py-12 mb-24">
+<!-- HEADER SECTION -->
+<div class="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
+<div class="space-y-2">
+<h1 class="text-4xl lg:text-5xl font-extrabold font-manrope text-on-surface tracking-tight">
+                    Lịch sử phân tích
+                </h1>
+<p class="text-on-surface-variant font-body max-w-lg">
+                    Quản lý và xem lại các bản tóm tắt, tối ưu hóa CV từ kho lưu trữ cá nhân của bạn.
+                </p>
+</div>
+<button class="flex items-center justify-center gap-2 bg-gradient-to-br from-primary to-primary-dim text-white px-8 py-4 rounded-xl font-bold shadow-lg shadow-primary/10 transition-all hover:scale-[1.02] active:scale-95">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+                + Phân tích mới
+            </button>
+</div>
+<!-- HISTORY LIST -->
+<div class="space-y-4">
+<!-- Card 1 -->
+<div class="group relative flex flex-col md:flex-row md:items-center justify-between p-6 bg-surface-container-lowest rounded-2xl transition-all duration-300 hover:bg-surface-container-low hover:-translate-y-1">
+<div class="flex items-center gap-5">
+<div class="w-12 h-12 flex items-center justify-center bg-surface-container-high rounded-xl text-primary">
+<span class="material-symbols-outlined text-2xl" data-icon="description">description</span>
+</div>
+<div>
+<h3 class="font-semibold text-on-surface text-lg">resume_alex_sterling.pdf</h3>
+<p class="text-sm text-on-surface-variant">20/03/2026, 15:30</p>
+</div>
+</div>
+<div class="flex items-center gap-6 mt-4 md:mt-0">
+<div class="flex flex-col items-center px-4 py-1 bg-secondary-container rounded-xl">
+<span class="text-xs font-bold text-on-secondary-container uppercase tracking-wider">Score</span>
+<span class="text-xl font-extrabold text-on-secondary-container font-manrope">85</span>
+</div>
+<div class="px-4 py-2 bg-secondary-container/30 rounded-full flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-on-secondary-container" data-icon="check_circle" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="text-xs font-bold text-on-secondary-container">Hoàn thành</span>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="group relative flex flex-col md:flex-row md:items-center justify-between p-6 bg-surface-container-lowest rounded-2xl transition-all duration-300 hover:bg-surface-container-low hover:-translate-y-1">
+<div class="flex items-center gap-5">
+<div class="w-12 h-12 flex items-center justify-center bg-surface-container-high rounded-xl text-primary">
+<span class="material-symbols-outlined text-2xl" data-icon="description">description</span>
+</div>
+<div>
+<h3 class="font-semibold text-on-surface text-lg">cv_nguyen_van_a.pdf</h3>
+<p class="text-sm text-on-surface-variant">19/03/2026, 10:15</p>
+</div>
+</div>
+<div class="flex items-center gap-6 mt-4 md:mt-0">
+<div class="flex flex-col items-center px-4 py-1 bg-tertiary-container/20 rounded-xl">
+<span class="text-xs font-bold text-tertiary uppercase tracking-wider">Score</span>
+<span class="text-xl font-extrabold text-tertiary font-manrope">62</span>
+</div>
+<div class="px-4 py-2 bg-tertiary-container/10 rounded-full flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-tertiary" data-icon="check_circle" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="text-xs font-bold text-tertiary">Hoàn thành</span>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="group relative flex flex-col md:flex-row md:items-center justify-between p-6 bg-surface-container-lowest rounded-2xl transition-all duration-300 hover:bg-surface-container-low hover:-translate-y-1">
+<div class="flex items-center gap-5">
+<div class="w-12 h-12 flex items-center justify-center bg-surface-container-high rounded-xl text-primary">
+<span class="material-symbols-outlined text-2xl" data-icon="description">description</span>
+</div>
+<div>
+<h3 class="font-semibold text-on-surface text-lg">resume_marketing_lead.docx</h3>
+<p class="text-sm text-on-surface-variant">18/03/2026, 14:22</p>
+</div>
+</div>
+<div class="flex items-center gap-6 mt-4 md:mt-0">
+<div class="flex flex-col items-center px-4 py-1 bg-secondary-container rounded-xl">
+<span class="text-xs font-bold text-on-secondary-container uppercase tracking-wider">Score</span>
+<span class="text-xl font-extrabold text-on-secondary-container font-manrope">91</span>
+</div>
+<div class="px-4 py-2 bg-secondary-container/30 rounded-full flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-on-secondary-container" data-icon="check_circle" data-weight="fill" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="text-xs font-bold text-on-secondary-container">Hoàn thành</span>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="group relative flex flex-col md:flex-row md:items-center justify-between p-6 bg-surface-container-lowest rounded-2xl transition-all duration-300 hover:bg-surface-container-low hover:-translate-y-1">
+<div class="flex items-center gap-5">
+<div class="w-12 h-12 flex items-center justify-center bg-surface-container-high rounded-xl text-primary">
+<span class="material-symbols-outlined text-2xl" data-icon="description">description</span>
+</div>
+<div>
+<h3 class="font-semibold text-on-surface text-lg">cv_backend_dev.pdf</h3>
+<p class="text-sm text-on-surface-variant">17/03/2026, 09:45</p>
+</div>
+</div>
+<div class="flex items-center gap-6 mt-4 md:mt-0">
+<div class="w-[72px] h-[48px] bg-surface-container rounded-xl flex items-center justify-center">
+<span class="material-symbols-outlined text-outline-variant" data-icon="horizontal_rule">horizontal_rule</span>
+</div>
+<div class="px-4 py-2 bg-primary-container/30 rounded-full flex items-center gap-2 animate-pulse">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="sync">sync</span>
+<span class="text-xs font-bold text-primary">Đang xử lý</span>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Card 5 -->
+<div class="group relative flex flex-col md:flex-row md:items-center justify-between p-6 bg-surface-container-lowest rounded-2xl transition-all duration-300 hover:bg-surface-container-low hover:-translate-y-1">
+<div class="flex items-center gap-5">
+<div class="w-12 h-12 flex items-center justify-center bg-surface-container-high rounded-xl text-primary">
+<span class="material-symbols-outlined text-2xl" data-icon="description">description</span>
+</div>
+<div>
+<h3 class="font-semibold text-on-surface text-lg">resume_intern_2026.pdf</h3>
+<p class="text-sm text-on-surface-variant">16/03/2026, 16:00</p>
+</div>
+</div>
+<div class="flex items-center gap-6 mt-4 md:mt-0">
+<div class="w-[72px] h-[48px] bg-surface-container rounded-xl flex items-center justify-center">
+<span class="material-symbols-outlined text-outline-variant" data-icon="horizontal_rule">horizontal_rule</span>
+</div>
+<div class="px-4 py-2 bg-error-container/20 rounded-full flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-error" data-icon="cancel">cancel</span>
+<span class="text-xs font-bold text-error">Thất bại</span>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Pagination/Bottom Spacer -->
+<div class="mt-12 flex justify-center">
+<button class="text-sm font-semibold text-on-surface-variant hover:text-primary transition-colors flex items-center gap-2">
+                Xem thêm lịch sử
+                <span class="material-symbols-outlined text-sm" data-icon="expand_more">expand_more</span>
+</button>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-6 pb-6 pt-3 md:hidden bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-t border-slate-200/50 dark:border-slate-800/50 shadow-[0_-10px_40px_rgba(42,52,57,0.06)] rounded-t-2xl">
+<a class="flex flex-col items-center justify-center text-[#566166] dark:text-slate-500 hover:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-inter text-[10px] font-medium">Phân tích</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-[#0053db]/10 text-[#0053db] dark:text-blue-300 rounded-xl px-4 py-1 transition-transform active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-inter text-[10px] font-medium">Lịch sử</span>
+</a>
+<a class="flex flex-col items-center justify-center text-[#566166] dark:text-slate-500 hover:opacity-80" href="#">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-inter text-[10px] font-medium">Tài khoản</span>
+</a>
+</nav>
+</body></html>

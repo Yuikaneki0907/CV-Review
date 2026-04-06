@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+
+<html lang="vi"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@500;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-tertiary-fixed": "#2a1700",
+              "primary-dim": "#0048c1",
+              "tertiary-container": "#f8a010",
+              "surface-variant": "#d9e4ea",
+              "surface-container-lowest": "#ffffff",
+              "on-primary-container": "#0048bf",
+              "on-primary-fixed-variant": "#0050d4",
+              "error-dim": "#4e0309",
+              "surface-container-highest": "#d9e4ea",
+              "outline": "#717c82",
+              "primary-container": "#dbe1ff",
+              "on-secondary-container": "#005e3f",
+              "error": "#9f403d",
+              "on-error": "#fff7f6",
+              "on-secondary": "#e6ffee",
+              "on-primary-fixed": "#003798",
+              "outline-variant": "#a9b4b9",
+              "primary": "#0053db",
+              "inverse-surface": "#0b0f10",
+              "background": "#f7f9fb",
+              "on-background": "#2a3439",
+              "inverse-on-surface": "#9a9d9f",
+              "tertiary-fixed-dim": "#e79400",
+              "secondary-container": "#6ffbbe",
+              "surface-bright": "#f7f9fb",
+              "surface-container": "#e8eff3",
+              "inverse-primary": "#618bff",
+              "on-secondary-fixed-variant": "#006947",
+              "on-secondary-fixed": "#004930",
+              "error-container": "#fe8983",
+              "on-error-container": "#752121",
+              "tertiary": "#865400",
+              "secondary-fixed-dim": "#5fedb0",
+              "surface-dim": "#cfdce3",
+              "on-surface": "#2a3439",
+              "on-primary": "#f8f7ff",
+              "surface-tint": "#0053db",
+              "on-tertiary": "#fff7f3",
+              "primary-fixed-dim": "#c7d3ff",
+              "surface-container-high": "#e1e9ee",
+              "secondary-dim": "#005f40",
+              "tertiary-dim": "#764900",
+              "on-tertiary-fixed-variant": "#563400",
+              "primary-fixed": "#dbe1ff",
+              "secondary": "#006d4a",
+              "tertiary-fixed": "#f8a010",
+              "surface": "#f7f9fb",
+              "on-tertiary-container": "#4a2c00",
+              "surface-container-low": "#f0f4f7",
+              "secondary-fixed": "#6ffbbe",
+              "on-surface-variant": "#566166"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #f7f9fb;
+      }
+      .font-manrope { font-family: 'Manrope', sans-serif; }
+    </style>
+</head>
+<body class="bg-surface-container-low text-on-surface min-h-screen">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-[#f7f9fb]/80 backdrop-blur-md">
+<div class="flex justify-between items-center px-12 py-4 w-full max-w-screen-2xl mx-auto">
+<div class="flex items-center gap-8">
+<span class="text-lg font-extrabold tracking-tighter text-[#2a3439] font-manrope">Editorial Intelligence</span>
+<div class="hidden md:flex gap-6 items-center">
+<a class="font-manrope text-sm font-medium tracking-tight text-slate-500 hover:text-[#0053db] transition-all duration-300" href="#">Review</a>
+<a class="font-manrope text-sm font-medium tracking-tight text-slate-500 hover:text-[#0053db] transition-all duration-300" href="#">Optimization</a>
+<a class="font-manrope text-sm font-medium tracking-tight text-slate-500 hover:text-[#0053db] transition-all duration-300" href="#">ATS Check</a>
+</div>
+</div>
+<button class="bg-primary text-on-primary px-5 py-2 rounded-lg font-manrope text-sm font-bold shadow-sm hover:opacity-90 active:scale-95 transition-all">
+                Export ATS-friendly PDF
+            </button>
+</div>
+</nav>
+<!-- Content Wrapper -->
+<main class="pt-24 pb-16">
+<!-- Sub-header & Tabs -->
+<header class="bg-surface border-b border-surface-variant">
+<div class="max-w-screen-2xl mx-auto px-12 pt-8">
+<div class="flex items-center justify-between mb-6">
+<div class="flex items-center gap-4">
+<a class="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-2 text-sm font-medium" href="#">
+<span class="material-symbols-outlined text-sm">arrow_back</span>
+                            Danh sách
+                        </a>
+<div class="h-4 w-px bg-outline-variant/30 mx-2"></div>
+<h1 class="font-headline text-2xl font-extrabold tracking-tight text-on-surface">resume_alex.pdf</h1>
+<span class="bg-secondary-container text-on-secondary-container px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">completed</span>
+</div>
+</div>
+<!-- TopAppBar (Tabs) -->
+<div class="flex gap-8 w-full">
+<a class="font-manrope text-xs uppercase tracking-widest font-bold text-slate-400 pb-2 hover:text-slate-900 transition-colors" href="#">Tổng quan</a>
+<a class="font-manrope text-xs uppercase tracking-widest font-bold text-slate-400 pb-2 hover:text-slate-900 transition-colors" href="#">So sánh CV</a>
+<a class="font-manrope text-xs uppercase tracking-widest font-bold text-[#0053db] border-b-2 border-[#0053db] pb-2" href="#">Cảnh báo (3)</a>
+</div>
+</div>
+</header>
+<!-- Main Warnings Content -->
+<section class="max-w-screen-2xl mx-auto px-12 mt-12">
+<div class="flex flex-col gap-8 max-w-5xl">
+<!-- Intro Context -->
+<div class="mb-2">
+<h2 class="font-headline text-3xl font-extrabold text-on-surface mb-2">Hallucination Warnings</h2>
+<p class="text-on-surface-variant font-body leading-relaxed max-w-2xl">
+                        Hệ thống phát hiện các điểm sai lệch thông tin giữa bản gốc và bản được AI tối ưu hóa. Vui lòng kiểm tra kỹ các nội dung dưới đây để đảm bảo tính trung thực của CV.
+                    </p>
+</div>
+<!-- CARD 1: Exaggeration -->
+<article class="bg-surface-container-lowest rounded-xl overflow-hidden shadow-[0_10px_40px_rgba(42,52,57,0.04)] border-l-4 border-tertiary-container">
+<div class="p-8">
+<div class="flex items-start justify-between mb-6">
+<div>
+<div class="flex items-center gap-3 mb-2">
+<span class="bg-tertiary-container/10 text-tertiary font-bold text-[10px] px-2 py-0.5 rounded tracking-widest uppercase">WARNING</span>
+<span class="text-on-surface font-headline font-bold text-lg">Exaggeration</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-base">work</span>
+                                    Professional Experience - CloudScale Solutions
+                                </div>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+<div class="bg-surface-container-low p-5 rounded-lg border border-transparent">
+<h4 class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-3">Bản gốc</h4>
+<p class="text-on-surface text-sm leading-relaxed">"Led a team of 4 junior marketing associates."</p>
+</div>
+<div class="bg-primary-container/20 p-5 rounded-lg border border-primary/10">
+<h4 class="text-[10px] font-bold uppercase tracking-widest text-primary mb-3">Bản viết lại</h4>
+<p class="text-on-surface text-sm font-medium leading-relaxed">"Spearheaded a multidisciplinary team of <span class="text-primary font-bold">8 marketing professionals</span> across content and design."</p>
+</div>
+</div>
+<div class="flex gap-3 items-start p-4 bg-tertiary-container/5 rounded-lg border border-tertiary-container/10">
+<span class="material-symbols-outlined text-tertiary text-xl">info</span>
+<p class="text-sm text-on-tertiary-container font-body leading-snug">
+                                The AI increased the team size from 4 to 8 and changed 'junior associates' to 'professionals'. This could be misleading.
+                            </p>
+</div>
+</div>
+</article>
+<!-- CARD 2: Fabrication -->
+<article class="bg-surface-container-lowest rounded-xl overflow-hidden shadow-[0_10px_40px_rgba(42,52,57,0.04)] border-l-4 border-error">
+<div class="p-8">
+<div class="flex items-start justify-between mb-6">
+<div>
+<div class="flex items-center gap-3 mb-2">
+<span class="bg-error-container/20 text-error font-bold text-[10px] px-2 py-0.5 rounded tracking-widest uppercase">ERROR</span>
+<span class="text-on-surface font-headline font-bold text-lg">Fabrication</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-base">work</span>
+                                    Professional Experience - DataDrive Inc.
+                                </div>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+<div class="bg-surface-container-low p-5 rounded-lg">
+<h4 class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-3">Bản gốc</h4>
+<p class="text-on-surface text-sm leading-relaxed">"Coordinated social media presence across Twitter and LinkedIn."</p>
+</div>
+<div class="bg-error-container/10 p-5 rounded-lg border border-error/10">
+<h4 class="text-[10px] font-bold uppercase tracking-widest text-error mb-3">Bản viết lại</h4>
+<p class="text-on-surface text-sm font-medium leading-relaxed">"<span class="text-error font-bold">Achieved #1 ranking on Google</span> for 'Big Data Security' through aggressive SEO and social media synergy."</p>
+</div>
+</div>
+<div class="flex gap-3 items-start p-4 bg-error-container/5 rounded-lg border border-error/10">
+<span class="material-symbols-outlined text-error text-xl">dangerous</span>
+<p class="text-sm text-on-error-container font-body leading-snug">
+                                This claim about Google ranking was entirely fabricated by the AI. The original CV mentions no SEO work.
+                            </p>
+</div>
+</div>
+</article>
+<!-- CARD 3: Metric inflation -->
+<article class="bg-surface-container-lowest rounded-xl overflow-hidden shadow-[0_10px_40px_rgba(42,52,57,0.04)] border-l-4 border-tertiary-container">
+<div class="p-8">
+<div class="flex items-start justify-between mb-6">
+<div>
+<div class="flex items-center gap-3 mb-2">
+<span class="bg-tertiary-container/10 text-tertiary font-bold text-[10px] px-2 py-0.5 rounded tracking-widest uppercase">WARNING</span>
+<span class="text-on-surface font-headline font-bold text-lg">Metric inflation</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-base">work</span>
+                                    Professional Experience - CloudScale Solutions
+                                </div>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+<div class="bg-surface-container-low p-5 rounded-lg">
+<h4 class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-3">Bản gốc</h4>
+<p class="text-on-surface text-sm leading-relaxed">"Increased user adoption by about 20%"</p>
+</div>
+<div class="bg-primary-container/20 p-5 rounded-lg border border-primary/10">
+<h4 class="text-[10px] font-bold uppercase tracking-widest text-primary mb-3">Bản viết lại</h4>
+<p class="text-on-surface text-sm font-medium leading-relaxed">"Drove a <span class="text-primary font-bold">22% increase in user retention</span>"</p>
+</div>
+</div>
+<div class="flex gap-3 items-start p-4 bg-tertiary-container/5 rounded-lg border border-tertiary-container/10">
+<span class="material-symbols-outlined text-tertiary text-xl">trending_up</span>
+<p class="text-sm text-on-tertiary-container font-body leading-snug">
+                                Changed 'adoption' to 'retention' (different metrics) and rounded up from ~20% to 22%.
+                            </p>
+</div>
+</div>
+</article>
+</div>
+</section>
+</main>
+<!-- Sidebar Sticky Action (Bento Style) -->
+<aside class="fixed right-12 top-1/2 -translate-y-1/2 hidden xl:flex flex-col gap-4 w-64">
+<div class="bg-surface-container-lowest p-6 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.03)] border border-surface-variant/50">
+<h5 class="font-headline font-bold text-on-surface mb-2">Summary</h5>
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<span class="text-sm text-on-surface-variant">Errors</span>
+<span class="bg-error-container text-on-error-container px-2 py-0.5 rounded-full text-[10px] font-bold">01</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-sm text-on-surface-variant">Warnings</span>
+<span class="bg-tertiary-container/20 text-tertiary px-2 py-0.5 rounded-full text-[10px] font-bold">02</span>
+</div>
+<div class="pt-4 border-t border-surface-variant/50">
+<button class="w-full bg-on-background text-surface py-3 rounded-lg text-sm font-bold font-manrope hover:opacity-90 transition-opacity">
+                        Review All
+                    </button>
+</div>
+</div>
+</div>
+<div class="bg-primary/5 p-6 rounded-xl border border-primary/10">
+<span class="material-symbols-outlined text-primary mb-2">lightbulb</span>
+<p class="text-xs text-on-primary-fixed-variant leading-relaxed">
+<strong class="block mb-1">Editorial Tip:</strong> 
+                Các lỗi Fabrication thường xảy ra khi mô tả quá ngắn gọn. Hãy cung cấp thêm chi tiết định lượng để AI tối ưu chính xác hơn.
+            </p>
+</div>
+</aside>
+</body></html>

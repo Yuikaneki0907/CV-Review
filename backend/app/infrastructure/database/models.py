@@ -59,3 +59,23 @@ class AnalysisModel(Base):
     completed_at = Column(DateTime, nullable=True)
 
     user = relationship("UserModel", back_populates="analyses")
+
+
+class CVFileModel(Base):
+    __tablename__ = "cv_files"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    analysis_id = Column(UUID(as_uuid=True), ForeignKey("analyses.id"), nullable=True, index=True)
+
+    original_filename = Column(String(255), nullable=False)
+    storage_key = Column(String(512), nullable=False, unique=True)
+    content_type = Column(String(100), default="application/octet-stream")
+    file_size = Column(Float, default=0)
+    version = Column(Float, default=1)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("UserModel")
+    analysis = relationship("AnalysisModel")
+

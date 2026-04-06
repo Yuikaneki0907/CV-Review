@@ -112,6 +112,18 @@ class AnalysisRepository(IAnalysisRepository):
         )
         return [self._to_entity(m) for m in result.scalars().all()]
 
+    async def get_stuck_analyses(self) -> List[AnalysisResult]:
+        """Return all analyses stuck in PENDING or PROCESSING status."""
+        result = await self._session.execute(
+            select(AnalysisModel).where(
+                AnalysisModel.status.in_([
+                    AnalysisStatus.PENDING.value,
+                    AnalysisStatus.PROCESSING.value,
+                ])
+            )
+        )
+        return [self._to_entity(m) for m in result.scalars().all()]
+
     @staticmethod
     def _to_entity(model: AnalysisModel) -> AnalysisResult:
         score = None
