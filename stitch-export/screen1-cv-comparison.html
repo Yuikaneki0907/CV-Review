@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Editorial Intelligence | CV Visual Diff</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-primary-fixed": "#003798",
+              "outline-variant": "#a9b4b9",
+              "primary-fixed": "#dbe1ff",
+              "outline": "#717c82",
+              "secondary-fixed": "#6ffbbe",
+              "surface-container": "#e8eff3",
+              "primary": "#0053db",
+              "background": "#f7f9fb",
+              "on-secondary-container": "#005e3f",
+              "surface": "#f7f9fb",
+              "tertiary-container": "#f8a010",
+              "on-secondary-fixed-variant": "#006947",
+              "on-primary-fixed-variant": "#0050d4",
+              "primary-dim": "#0048c1",
+              "primary-container": "#dbe1ff",
+              "tertiary": "#865400",
+              "inverse-on-surface": "#9a9d9f",
+              "surface-dim": "#cfdce3",
+              "surface-container-lowest": "#ffffff",
+              "error-container": "#fe8983",
+              "on-surface": "#2a3439",
+              "on-primary": "#f8f7ff",
+              "inverse-primary": "#618bff",
+              "on-secondary-fixed": "#004930",
+              "surface-tint": "#0053db",
+              "on-primary-container": "#0048bf",
+              "on-surface-variant": "#566166",
+              "secondary": "#006d4a",
+              "on-error": "#fff7f6",
+              "on-secondary": "#e6ffee",
+              "on-tertiary-container": "#4a2c00",
+              "surface-container-high": "#e1e9ee",
+              "surface-variant": "#d9e4ea",
+              "on-tertiary-fixed-variant": "#563400",
+              "inverse-surface": "#0b0f10",
+              "on-error-container": "#752121",
+              "tertiary-fixed": "#f8a010",
+              "tertiary-fixed-dim": "#e79400",
+              "secondary-container": "#6ffbbe",
+              "on-tertiary": "#fff7f3",
+              "primary-fixed-dim": "#c7d3ff",
+              "tertiary-dim": "#764900",
+              "on-background": "#2a3439",
+              "error-dim": "#4e0309",
+              "secondary-dim": "#005f40",
+              "on-tertiary-fixed": "#2a1700",
+              "surface-container-highest": "#d9e4ea",
+              "error": "#9f403d",
+              "surface-bright": "#f7f9fb",
+              "secondary-fixed-dim": "#5fedb0",
+              "surface-container-low": "#f0f4f7"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      body { font-family: 'Inter', sans-serif; }
+      h1, h2, h3 { font-family: 'Manrope', sans-serif; }
+      .editorial-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+      }
+    </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen pb-24">
+<!-- TopNavBar -->
+<header class="bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-xl shadow-sm dark:shadow-none docked full-width top-0 z-50 fixed flex justify-between items-center w-full px-6 py-3 max-w-full">
+<div class="flex items-center gap-6">
+<span class="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-50">Editorial Intelligence</span>
+<div class="h-6 w-[1px] bg-outline-variant/30"></div>
+<div class="flex items-center gap-2 px-3 py-1 bg-secondary-container text-on-secondary-container rounded-full">
+<span class="text-[10px] uppercase tracking-wider font-bold">Match Score</span>
+<span class="font-bold">85%</span>
+</div>
+</div>
+<nav class="hidden md:flex items-center gap-8">
+<button class="text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors px-3 py-1 rounded text-xs uppercase tracking-wider font-semibold">Review</button>
+<button class="text-blue-700 dark:text-blue-400 border-b-2 border-blue-700 px-3 py-1 text-xs uppercase tracking-wider font-semibold">Optimization</button>
+<button class="text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors px-3 py-1 rounded text-xs uppercase tracking-wider font-semibold">ATS Check</button>
+</nav>
+<div class="flex items-center gap-3">
+<button class="material-symbols-outlined text-slate-500 hover:bg-slate-200/50 p-2 rounded-full transition-colors" data-icon="history">history</button>
+<button class="material-symbols-outlined text-slate-500 hover:bg-slate-200/50 p-2 rounded-full transition-colors" data-icon="settings">settings</button>
+<button class="bg-primary hover:opacity-90 text-white px-5 py-2 rounded-md text-sm font-semibold transition-all active:scale-95">
+                Export ATS-friendly PDF
+            </button>
+</div>
+</header>
+<!-- Main Content: Side-by-Side Visual Diff -->
+<main class="pt-24 px-6 max-w-[1600px] mx-auto">
+<div class="flex flex-col gap-8">
+<!-- Header Section -->
+<div class="flex flex-col gap-2">
+<h1 class="text-4xl font-extrabold tracking-tight text-on-surface">Curated Optimization</h1>
+<p class="text-on-surface-variant max-w-2xl">We've enhanced your professional narrative by aligning key achievements with executive-level requirements. Highlighting indicates AI-suggested refinements and potential data discrepancies.</p>
+</div>
+<!-- Split Screen Canvas -->
+<div class="editorial-grid">
+<!-- Left Column: Original CV -->
+<section class="flex flex-col gap-6">
+<div class="flex items-center justify-between pb-4">
+<h2 class="text-xs uppercase tracking-[0.2em] font-bold text-on-surface-variant">Original CV</h2>
+<span class="text-[10px] text-outline px-2 py-0.5 border border-outline-variant/20 rounded">Source: resume_v2.pdf</span>
+</div>
+<div class="bg-surface-container-low rounded-xl p-10 min-h-[800px] shadow-sm">
+<div class="max-w-prose mx-auto flex flex-col gap-10">
+<!-- CV Header -->
+<header class="border-b border-outline-variant/10 pb-8">
+<h3 class="text-3xl font-bold text-on-surface mb-2">Alex Sterling</h3>
+<p class="text-on-surface-variant font-medium">Senior Product Marketing Manager</p>
+</header>
+<!-- CV Section: Experience -->
+<div class="flex flex-col gap-8">
+<h4 class="text-sm font-bold text-primary tracking-widest uppercase">Professional Experience</h4>
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-baseline">
+<p class="font-bold text-on-surface">CloudScale Solutions</p>
+<p class="text-sm text-on-surface-variant italic">2020 – Present</p>
+</div>
+<p class="text-sm font-semibold text-on-surface-variant mb-2">Lead Product Marketer</p>
+<ul class="text-sm text-on-surface-variant space-y-3 leading-relaxed">
+<li>Managed the launch of three new software products for enterprise clients.</li>
+<li>Worked with sales teams to create pitch decks and sales materials.</li>
+<li>Increased user adoption by about 20% over the last two years through email campaigns.</li>
+<li>Led a team of 4 junior marketing associates.</li>
+</ul>
+</div>
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-baseline">
+<p class="font-bold text-on-surface">DataDrive Inc.</p>
+<p class="text-sm text-on-surface-variant italic">2017 – 2020</p>
+</div>
+<p class="text-sm font-semibold text-on-surface-variant mb-2">Marketing Specialist</p>
+<ul class="text-sm text-on-surface-variant space-y-3 leading-relaxed">
+<li>Analyzed market trends to identify new opportunities.</li>
+<li>Coordinated social media presence across Twitter and LinkedIn.</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Column: AI Optimized CV -->
+<section class="flex flex-col gap-6">
+<div class="flex items-center justify-between pb-4">
+<h2 class="text-xs uppercase tracking-[0.2em] font-bold text-primary">AI Optimized CV</h2>
+<div class="flex gap-4">
+<div class="flex items-center gap-1.5">
+<div class="w-2 h-2 rounded-full bg-secondary-container"></div>
+<span class="text-[10px] font-bold text-on-surface-variant">Enhanced</span>
+</div>
+<div class="flex items-center gap-1.5">
+<div class="w-2 h-2 rounded-full bg-tertiary-container"></div>
+<span class="text-[10px] font-bold text-on-surface-variant">Verify</span>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-xl p-10 min-h-[800px] shadow-lg ring-1 ring-primary/5">
+<div class="max-w-prose mx-auto flex flex-col gap-10">
+<!-- CV Header -->
+<header class="border-b border-outline-variant/10 pb-8">
+<h3 class="text-3xl font-bold text-on-surface mb-2">Alex Sterling</h3>
+<p class="text-on-surface-variant font-medium">Strategic Product Marketing Leader</p>
+</header>
+<!-- CV Section: Experience -->
+<div class="flex flex-col gap-8">
+<h4 class="text-sm font-bold text-primary tracking-widest uppercase">Professional Experience</h4>
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-baseline">
+<p class="font-bold text-on-surface">CloudScale Solutions</p>
+<p class="text-sm text-on-surface-variant italic">2020 – Present</p>
+</div>
+<p class="text-sm font-semibold text-on-surface-variant mb-2">Senior Lead, Product Marketing Strategy</p>
+<ul class="text-sm text-on-surface-variant space-y-3 leading-relaxed">
+<li class="bg-secondary-container/30 px-2 py-1 -mx-2 rounded">
+                                            Orchestrated the end-to-end GTM strategy for <span class="font-bold text-on-secondary-container">3 high-impact enterprise SaaS solutions</span>, resulting in $12M+ in pipeline generation.
+                                        </li>
+<li class="bg-secondary-container/30 px-2 py-1 -mx-2 rounded">
+                                            Partnered cross-functionally with Global Sales to architect high-conversion collateral and executive-level pitch narratives.
+                                        </li>
+<li class="bg-secondary-container/30 px-2 py-1 -mx-2 rounded flex gap-2">
+<span>Drove a <span class="font-bold text-on-secondary-container">22% increase in user retention</span> and adoption through data-driven lifecycle marketing and automated nurture streams.</span>
+</li>
+<li class="bg-tertiary-container/20 px-2 py-1 -mx-2 rounded relative group border-l-2 border-tertiary">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-tertiary text-sm mt-0.5" data-icon="warning">warning</span>
+<span>Spearheaded a multidisciplinary team of <span class="underline decoration-tertiary decoration-wavy underline-offset-4 font-bold text-on-tertiary-container">8 marketing professionals</span> across content and design.</span>
+</div>
+<!-- Tooltip / Hallucination Note -->
+<div class="hidden group-hover:block absolute left-0 -top-12 bg-inverse-surface text-white text-[10px] px-3 py-2 rounded-lg shadow-xl w-64 z-10">
+                                                Potential Hallucination: Original CV states "4 junior associates". Please verify headcount.
+                                            </div>
+</li>
+</ul>
+</div>
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-baseline">
+<p class="font-bold text-on-surface">DataDrive Inc.</p>
+<p class="text-sm text-on-surface-variant italic">2017 – 2020</p>
+</div>
+<p class="text-sm font-semibold text-on-surface-variant mb-2">Marketing Strategy Specialist</p>
+<ul class="text-sm text-on-surface-variant space-y-3 leading-relaxed">
+<li class="bg-secondary-container/30 px-2 py-1 -mx-2 rounded">
+                                            Leveraged competitive intelligence and market trend analysis to pivot product positioning within the mid-market segment.
+                                        </li>
+<li class="bg-error-container/20 px-2 py-1 -mx-2 rounded border-l-2 border-error">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-error text-sm mt-0.5" data-icon="error">error</span>
+<span>Achieved #1 ranking on Google for "Big Data Security" through aggressive SEO and social media synergy.</span>
+</div>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<footer class="fixed bottom-0 left-0 w-full flex justify-center gap-4 py-4 px-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg shadow-[0_-4px_20px_rgba(0,0,0,0.05)] rounded-t-2xl z-50">
+<!-- Secondary Actions -->
+<button class="flex flex-col items-center justify-center text-slate-600 dark:text-slate-400 px-8 py-2 hover:opacity-90 transition-opacity active:scale-98">
+<span class="material-symbols-outlined mb-1" data-icon="close">close</span>
+<span class="text-[11px] font-bold Manrope uppercase tracking-wider">Discard Changes</span>
+</button>
+<!-- Ghost Action -->
+<button class="flex flex-col items-center justify-center text-slate-600 dark:text-slate-400 px-8 py-2 hover:opacity-90 transition-opacity active:scale-98">
+<span class="material-symbols-outlined mb-1" data-icon="edit_note">edit_note</span>
+<span class="text-[11px] font-bold Manrope uppercase tracking-wider">Manual Edit</span>
+</button>
+<!-- Primary Action -->
+<button class="flex flex-col items-center justify-center bg-blue-600 text-white rounded-xl px-12 py-2 hover:opacity-90 transition-opacity active:scale-98">
+<span class="material-symbols-outlined mb-1" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="text-[11px] font-bold Manrope uppercase tracking-wider">Accept Optimization</span>
+</button>
+</footer>
+</body></html>

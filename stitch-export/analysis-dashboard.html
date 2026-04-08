@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+
+<html class="light" lang="vi"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-secondary": "#e6ffee",
+              "surface-container-lowest": "#ffffff",
+              "tertiary-fixed": "#f8a010",
+              "surface-bright": "#f7f9fb",
+              "primary-fixed-dim": "#c7d3ff",
+              "on-primary-fixed": "#003798",
+              "surface-variant": "#d9e4ea",
+              "on-surface": "#2a3439",
+              "on-tertiary-container": "#4a2c00",
+              "on-error": "#fff7f6",
+              "secondary-dim": "#005f40",
+              "surface-container-highest": "#d9e4ea",
+              "outline": "#717c82",
+              "error-container": "#fe8983",
+              "secondary-container": "#6ffbbe",
+              "on-error-container": "#752121",
+              "on-secondary-fixed-variant": "#006947",
+              "background": "#f7f9fb",
+              "on-tertiary": "#fff7f3",
+              "on-secondary-container": "#005e3f",
+              "error": "#9f403d",
+              "surface": "#f7f9fb",
+              "inverse-surface": "#0b0f10",
+              "primary": "#0053db",
+              "on-surface-variant": "#566166",
+              "on-tertiary-fixed": "#2a1700",
+              "inverse-primary": "#618bff",
+              "on-primary-container": "#0048bf",
+              "surface-dim": "#cfdce3",
+              "on-primary": "#f8f7ff",
+              "primary-fixed": "#dbe1ff",
+              "surface-container-low": "#f0f4f7",
+              "tertiary-container": "#f8a010",
+              "on-primary-fixed-variant": "#0050d4",
+              "outline-variant": "#a9b4b9",
+              "tertiary-dim": "#764900",
+              "error-dim": "#4e0309",
+              "inverse-on-surface": "#9a9d9f",
+              "on-secondary-fixed": "#004930",
+              "secondary-fixed-dim": "#5fedb0",
+              "secondary": "#006d4a",
+              "primary-container": "#dbe1ff",
+              "surface-container-high": "#e1e9ee",
+              "surface-tint": "#0053db",
+              "surface-container": "#e8eff3",
+              "on-tertiary-fixed-variant": "#563400",
+              "tertiary-fixed-dim": "#e79400",
+              "tertiary": "#865400",
+              "secondary-fixed": "#6ffbbe",
+              "primary-dim": "#0048c1",
+              "on-background": "#2a3439"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3, .font-headline { font-family: 'Manrope', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen">
+<!-- TopNavBar -->
+<header class="bg-[#f7f9fb] dark:bg-slate-900 sticky top-0 z-50">
+<div class="flex justify-between items-center w-full px-8 py-4 max-w-screen-2xl mx-auto">
+<div class="text-xl font-bold text-[#2a3439] dark:text-slate-100 tracking-tighter font-headline">
+                Editorial Intelligence
+            </div>
+<nav class="hidden md:flex items-center gap-8">
+<a class="text-[#566166] dark:text-slate-400 hover:text-[#2a3439] transition-colors font-manrope text-sm font-medium tracking-tight" href="#">Review</a>
+<a class="text-[#0053db] dark:text-blue-400 font-bold border-b-2 border-[#0053db] pb-1 font-manrope text-sm tracking-tight" href="#">Optimization</a>
+<a class="text-[#566166] dark:text-slate-400 hover:text-[#2a3439] transition-colors font-manrope text-sm font-medium tracking-tight" href="#">ATS Check</a>
+</nav>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant">history</span>
+<span class="material-symbols-outlined text-on-surface-variant">settings</span>
+</div>
+<div class="h-6 w-px bg-[#f0f4f7] dark:bg-slate-800 opacity-50"></div>
+<span class="text-sm font-semibold text-primary">Match Score 85%</span>
+<button class="bg-primary text-on-primary px-4 py-2 rounded-md text-sm font-bold shadow-sm transition-all active:scale-95">
+                    Export ATS-friendly PDF
+                </button>
+</div>
+</div>
+<div class="bg-[#f0f4f7] dark:bg-slate-800 h-px w-full opacity-50"></div>
+</header>
+<main class="max-w-screen-2xl mx-auto px-8 py-6">
+<!-- Back Link -->
+<div class="mb-10">
+<a class="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors text-sm font-medium" href="#">
+<span class="material-symbols-outlined text-sm">arrow_back</span>
+                ← Danh sách
+            </a>
+<h1 class="mt-4 text-3xl font-extrabold tracking-tight text-on-surface font-headline">Analysis Dashboard</h1>
+<p class="text-on-surface-variant text-sm mt-1 font-body">Detailed structural and content breakdown of your career narrative.</p>
+</div>
+<!-- SECTION 1: Score Cards Row -->
+<section class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
+<!-- Overall Score -->
+<div class="bg-surface-container-low p-6 rounded-xl flex items-center justify-between">
+<div>
+<p class="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-1">Tổng điểm</p>
+<p class="text-4xl font-extrabold font-headline text-on-surface">78<span class="text-lg text-on-surface-variant">/100</span></p>
+</div>
+<div class="relative flex items-center justify-center w-16 h-16">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-surface-variant" cx="32" cy="32" fill="transparent" r="28" stroke="currentColor" stroke-width="6"></circle>
+<circle class="text-secondary" cx="32" cy="32" fill="transparent" r="28" stroke="currentColor" stroke-dasharray="175.9" stroke-dashoffset="38.7" stroke-width="6"></circle>
+</svg>
+<span class="absolute text-xs font-bold text-secondary">78%</span>
+</div>
+</div>
+<!-- Skills -->
+<div class="bg-surface-container-low p-6 rounded-xl">
+<p class="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-1">Kỹ năng</p>
+<div class="flex items-end justify-between">
+<p class="text-4xl font-extrabold font-headline text-secondary">85</p>
+<div class="flex flex-col items-end">
+<span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">trending_up</span>
+<span class="text-[10px] text-secondary font-bold">+12% vs avg</span>
+</div>
+</div>
+<div class="mt-4 h-1.5 w-full bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-[85%]"></div>
+</div>
+</div>
+<!-- Experience -->
+<div class="bg-surface-container-low p-6 rounded-xl">
+<p class="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-1">Kinh nghiệm</p>
+<div class="flex items-end justify-between">
+<p class="text-4xl font-extrabold font-headline text-tertiary">65</p>
+<span class="material-symbols-outlined text-tertiary">insights</span>
+</div>
+<div class="mt-4 h-1.5 w-full bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[65%]"></div>
+</div>
+</div>
+<!-- Tools -->
+<div class="bg-surface-container-low p-6 rounded-xl">
+<p class="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-1">Công cụ</p>
+<div class="flex items-end justify-between">
+<p class="text-4xl font-extrabold font-headline text-tertiary">72</p>
+<span class="material-symbols-outlined text-tertiary">build</span>
+</div>
+<div class="mt-4 h-1.5 w-full bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[72%]"></div>
+</div>
+</div>
+</section>
+<!-- SECTION 2: Tab Bar -->
+<section class="mb-8 border-b border-surface-variant/30">
+<div class="flex gap-10">
+<button class="pb-4 text-sm font-bold text-primary border-b-2 border-primary relative">
+                    Tổng quan
+                </button>
+<button class="pb-4 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors">
+                    So sánh CV
+                </button>
+<button class="pb-4 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-2">
+                    Cảnh báo <span class="bg-error-container text-on-error-container text-[10px] px-1.5 py-0.5 rounded-full font-bold">3</span>
+</button>
+</div>
+</section>
+<!-- SECTION 3: Overview Tab Content -->
+<section class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+<!-- Column 1: Matched Skills -->
+<div class="bg-surface-container-low/50 rounded-2xl p-8 backdrop-blur-sm">
+<div class="flex items-center gap-3 mb-6">
+<div class="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<h3 class="font-headline font-bold text-lg">✅ Kỹ năng phù hợp</h3>
+</div>
+<div class="flex flex-wrap gap-2">
+<span class="px-3 py-1.5 bg-secondary-container/40 text-on-secondary-container text-xs font-semibold rounded-lg">Python</span>
+<span class="px-3 py-1.5 bg-secondary-container/40 text-on-secondary-container text-xs font-semibold rounded-lg">FastAPI</span>
+<span class="px-3 py-1.5 bg-secondary-container/40 text-on-secondary-container text-xs font-semibold rounded-lg">Docker</span>
+<span class="px-3 py-1.5 bg-secondary-container/40 text-on-secondary-container text-xs font-semibold rounded-lg">PostgreSQL</span>
+<span class="px-3 py-1.5 bg-secondary-container/40 text-on-secondary-container text-xs font-semibold rounded-lg">REST API</span>
+<span class="px-3 py-1.5 bg-secondary-container/40 text-on-secondary-container text-xs font-semibold rounded-lg">Git</span>
+</div>
+<div class="mt-8 p-4 bg-surface-container-lowest rounded-xl">
+<p class="text-xs text-on-surface-variant leading-relaxed italic">"Your core backend proficiency aligns perfectly with the architectural requirements of the role."</p>
+</div>
+</div>
+<!-- Column 2: Missing Skills -->
+<div class="bg-surface-container-low/50 rounded-2xl p-8 backdrop-blur-sm">
+<div class="flex items-center gap-3 mb-6">
+<div class="w-10 h-10 rounded-full bg-error-container flex items-center justify-center text-on-error-container">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">cancel</span>
+</div>
+<h3 class="font-headline font-bold text-lg">❌ Kỹ năng thiếu</h3>
+</div>
+<div class="flex flex-wrap gap-2">
+<span class="px-3 py-1.5 bg-error-container/30 text-on-error-container text-xs font-semibold rounded-lg">Kubernetes</span>
+<span class="px-3 py-1.5 bg-error-container/30 text-on-error-container text-xs font-semibold rounded-lg">CI/CD</span>
+<span class="px-3 py-1.5 bg-error-container/30 text-on-error-container text-xs font-semibold rounded-lg">AWS</span>
+<span class="px-3 py-1.5 bg-error-container/30 text-on-error-container text-xs font-semibold rounded-lg">GraphQL</span>
+</div>
+<div class="mt-8 p-4 bg-surface-container-lowest rounded-xl">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-error text-sm">priority_high</span>
+<p class="text-xs text-on-surface font-medium leading-relaxed">Critical: Cloud Infrastructure skills are highly prioritized for this position.</p>
+</div>
+</div>
+</div>
+<!-- Column 3: Extra Skills -->
+<div class="bg-surface-container-low/50 rounded-2xl p-8 backdrop-blur-sm">
+<div class="flex items-center gap-3 mb-6">
+<div class="w-10 h-10 rounded-full bg-tertiary-container flex items-center justify-center text-on-tertiary-container">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">add_circle</span>
+</div>
+<h3 class="font-headline font-bold text-lg">➕ Kỹ năng bổ sung</h3>
+</div>
+<div class="flex flex-wrap gap-2">
+<span class="px-3 py-1.5 bg-tertiary-container/30 text-on-tertiary-container text-xs font-semibold rounded-lg">Redis</span>
+<span class="px-3 py-1.5 bg-tertiary-container/30 text-on-tertiary-container text-xs font-semibold rounded-lg">MongoDB</span>
+<span class="px-3 py-1.5 bg-tertiary-container/30 text-on-tertiary-container text-xs font-semibold rounded-lg">Flask</span>
+<span class="px-3 py-1.5 bg-tertiary-container/30 text-on-tertiary-container text-xs font-semibold rounded-lg">Vue.js</span>
+</div>
+<div class="mt-8 p-4 bg-surface-container-lowest rounded-xl">
+<p class="text-xs text-on-surface-variant leading-relaxed">These skills aren't required but provide a competitive edge in "System Performance" discussions.</p>
+</div>
+</div>
+</section>
+<!-- Asymmetric Detail Section (Editorial Touch) -->
+<section class="mt-20 flex flex-col md:flex-row gap-16">
+<div class="md:w-1/3">
+<h2 class="text-4xl font-extrabold font-headline leading-tight tracking-tighter">Your career narrative is shaping up.</h2>
+<p class="mt-6 text-on-surface-variant font-body leading-relaxed">We analyzed 42 similar roles in your industry. Adding a "Cloud Orchestration" section could increase your visibility by up to 24%.</p>
+<button class="mt-8 group flex items-center gap-4 text-primary font-bold text-sm">
+                    Optimize Experience Section
+                    <span class="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</button>
+</div>
+<div class="md:w-2/3 grid grid-cols-2 gap-4">
+<div class="h-64 rounded-2xl bg-gradient-to-br from-primary to-primary-dim p-8 text-on-primary flex flex-col justify-end relative overflow-hidden">
+<div class="absolute top-0 right-0 p-8 opacity-20">
+<span class="material-symbols-outlined text-8xl" style="font-variation-settings: 'wght' 700;">auto_awesome</span>
+</div>
+<p class="text-3xl font-headline font-extrabold">AI Insight</p>
+<p class="text-sm opacity-90 mt-2">Replace "Used Docker" with "Orchestrated containerized workflows" for 15% better ATS impact.</p>
+</div>
+<div class="h-64 rounded-2xl bg-surface-container-high p-8 flex flex-col justify-end">
+<span class="material-symbols-outlined text-4xl text-primary mb-auto" style="font-variation-settings: 'FILL' 1;">description</span>
+<p class="text-sm text-on-surface-variant font-medium">Ready for review</p>
+<p class="text-xl font-headline font-bold text-on-surface mt-1">CV_Senior_Architect_v2.pdf</p>
+</div>
+</div>
+</section>
+</main>
+<!-- SideNavBar (Mobile hidden based on JSON rule) -->
+<aside class="hidden lg:flex fixed left-0 top-0 h-full w-64 bg-[#f7f9fb] dark:bg-slate-900 flex-col p-6 z-40">
+<div class="mb-10">
+<h2 class="font-bold text-[#2a3439] font-headline text-lg">Career Narrative</h2>
+<p class="text-on-surface-variant text-xs font-body">Senior Architect</p>
+</div>
+<nav class="flex-1 space-y-2">
+<a class="flex items-center gap-3 px-4 py-3 text-[#566166] dark:text-slate-400 hover:bg-[#f0f4f7] dark:hover:bg-slate-800 rounded-lg transition-transform duration-200 hover:translate-x-1 font-manrope text-sm" href="#">
+<span class="material-symbols-outlined text-xl">dashboard</span> Dashboard
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 bg-[#ffffff] dark:bg-slate-800 text-[#0053db] dark:text-blue-400 rounded-lg shadow-sm font-semibold transition-transform duration-200 hover:translate-x-1 font-manrope text-sm" href="#">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">description</span> CV Builder
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-[#566166] dark:text-slate-400 hover:bg-[#f0f4f7] dark:hover:bg-slate-800 rounded-lg transition-transform duration-200 hover:translate-x-1 font-manrope text-sm" href="#">
+<span class="material-symbols-outlined text-xl">analytics</span> Analytics
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-[#566166] dark:text-slate-400 hover:bg-[#f0f4f7] dark:hover:bg-slate-800 rounded-lg transition-transform duration-200 hover:translate-x-1 font-manrope text-sm" href="#">
+<span class="material-symbols-outlined text-xl">inventory_2</span> Archive
+            </a>
+</nav>
+<div class="mt-auto space-y-2 pt-6 border-t border-surface-variant/30">
+<div class="p-4 bg-primary/5 rounded-xl mb-4">
+<p class="text-[10px] uppercase tracking-widest font-bold text-primary mb-2">Upgrade needed</p>
+<p class="text-xs text-on-surface-variant leading-tight mb-3">Get advanced ATS heatmaps.</p>
+<button class="w-full py-2 bg-primary text-on-primary text-xs font-bold rounded shadow-sm">Upgrade to Pro</button>
+</div>
+<a class="flex items-center gap-3 px-4 py-2 text-[#566166] hover:text-on-surface text-sm font-manrope" href="#">
+<span class="material-symbols-outlined text-xl">help</span> Help
+            </a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#566166] hover:text-on-surface text-sm font-manrope" href="#">
+<span class="material-symbols-outlined text-xl">settings</span> Settings
+            </a>
+</div>
+</aside>
+<footer class="mt-20 bg-surface-container-low py-12">
+<div class="max-w-screen-2xl mx-auto px-8 flex justify-between items-center">
+<p class="text-xs text-on-surface-variant font-body">© 2024 Editorial Intelligence. Crafted for the ambitious.</p>
+<div class="flex gap-6 text-xs font-bold uppercase tracking-tighter text-on-surface-variant">
+<a href="#">Privacy</a>
+<a href="#">Terms</a>
+<a href="#">Contact</a>
+</div>
+</div>
+</footer>
+</body></html>
