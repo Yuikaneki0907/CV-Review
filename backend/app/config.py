@@ -10,12 +10,12 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/cv_review"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5420/cv_review"
 
     # Redis / Celery
-    REDIS_URL: str = "redis://localhost:6379/0"
-    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+    REDIS_URL: str = "redis://localhost:6320/0"
+    CELERY_BROKER_URL: str = "redis://localhost:6320/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6320/0"
 
     # JWT
     SECRET_KEY: str = "your-secret-key-change-in-production"
@@ -24,18 +24,24 @@ class Settings(BaseSettings):
 
     # OpenAI
     OPENAI_API_KEY: str = ""
+    OPENAI_API_BASE: str | None = None
     OPENAI_MODEL: str = "gpt-4o-mini"
     OPENAI_EMBED_MODEL: str = "text-embedding-3-small"
 
+    # Gemini
+    GEMINI_API_KEY: str = ""
+    GEMINI_GEN_MODEL: str = "gemini-3-flash-preview"
+    GEMINI_EMBED_MODEL: str = "text-embedding-004"
+
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    CORS_ORIGINS: List[str] = ["http://localhost:3020", "http://localhost:5120"]
 
     # File upload
     UPLOAD_DIR: str = "uploads"
     MAX_FILE_SIZE_MB: int = 10
 
     # MinIO
-    MINIO_ENDPOINT: str = "localhost:9000"
+    MINIO_ENDPOINT: str = "localhost:9020"
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET_NAME: str = "cv-files"

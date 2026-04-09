@@ -96,6 +96,10 @@ class AnalysisRepository(IAnalysisRepository):
                 for w in analysis.hallucination_report.warnings
             ]
 
+        db_model.jd_evaluation = analysis.jd_evaluation
+        db_model.interview_questions = analysis.interview_questions
+        db_model.salary_negotiation = analysis.salary_negotiation
+
         db_model.completed_at = analysis.completed_at
         await self._session.flush()
         return analysis
@@ -105,7 +109,7 @@ class AnalysisRepository(IAnalysisRepository):
     ) -> List[AnalysisResult]:
         result = await self._session.execute(
             select(AnalysisModel)
-            .where(AnalysisModel.user_id == user_id)
+            .where(AnalysisModel.user_id == user_id, AnalysisModel.deleted_at.is_(None))
             .order_by(AnalysisModel.created_at.desc())
             .limit(limit)
             .offset(offset)
@@ -124,6 +128,17 @@ class AnalysisRepository(IAnalysisRepository):
         )
         return [self._to_entity(m) for m in result.scalars().all()]
 
+    async def soft_delete(self, analysis_id: UUID, user_id: UUID) -> bool:
+        from datetime import datetime, timezone
+        result = await self._session.execute(
+            select(AnalysisModel).where(AnalysisModel.id == analysis_id, AnalysisModel.user_id == user_id)
+        )
+        model = result.scalar_one_or_none()
+        if not model:
+            return False
+        model.deleted_at = datetime.now(timezone.utc)
+        await self._session.flush()
+        return True
     @staticmethod
     def _to_entity(model: AnalysisModel) -> AnalysisResult:
         score = None
@@ -184,6 +199,9 @@ class AnalysisRepository(IAnalysisRepository):
             rewritten_cv=model.rewritten_cv,
             diff_result=diff_result,
             hallucination_report=hallucination_report,
+            jd_evaluation=model.jd_evaluation,
+            interview_questions=model.interview_questions,
+            salary_negotiation=model.salary_negotiation,
             created_at=model.created_at,
             completed_at=model.completed_at,
         )

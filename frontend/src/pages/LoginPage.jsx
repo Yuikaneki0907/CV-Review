@@ -17,7 +17,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await loginUser(email, password);
-      navigate('/');
+      navigate('/upload');
     } catch (err) {
       setError(err.response?.data?.detail || 'Đăng nhập thất bại');
     } finally {

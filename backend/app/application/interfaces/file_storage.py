@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from io import BytesIO
-from typing import Optional
 
 
 class IFileStorage(ABC):

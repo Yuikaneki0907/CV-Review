@@ -5,6 +5,7 @@ from uuid import UUID
 from app.domain.entities.user import User
 from app.domain.entities.analysis_result import AnalysisResult
 from app.domain.entities.cv_file import CVFile
+from app.domain.entities.generated_cv import GeneratedCV
 
 
 class IUserRepository(ABC):
@@ -20,6 +21,10 @@ class IUserRepository(ABC):
 
     @abstractmethod
     async def get_by_id(self, user_id: UUID) -> Optional[User]:
+        ...
+
+    @abstractmethod
+    async def update(self, user_id: UUID, full_name: Optional[str] = None, phone_number: Optional[str] = None) -> Optional[User]:
         ...
 
 
@@ -49,6 +54,10 @@ class IAnalysisRepository(ABC):
         """Return all analyses with status PENDING or PROCESSING (stuck after crash)."""
         ...
 
+    @abstractmethod
+    async def soft_delete(self, analysis_id: UUID, user_id: UUID) -> bool:
+        ...
+
 
 class ICVFileRepository(ABC):
     """Port for CV file version data access."""
@@ -72,3 +81,37 @@ class ICVFileRepository(ABC):
         """Return the next version number for a given user + filename combo."""
         ...
 
+    @abstractmethod
+    async def soft_delete(self, file_id: UUID, user_id: UUID) -> bool:
+        ...
+
+
+class IGeneratedCVRepository(ABC):
+    """Port for GeneratedCV entity database operations."""
+
+    @abstractmethod
+    async def create(self, cv: "GeneratedCV") -> "GeneratedCV":
+        ...
+
+    @abstractmethod
+    async def get_by_id(self, cv_id: UUID) -> Optional["GeneratedCV"]:
+        ...
+
+    @abstractmethod
+    async def list_by_user_id(
+        self, user_id: UUID, limit: int = 20, offset: int = 0
+    ) -> List["GeneratedCV"]:
+        ...
+
+    @abstractmethod
+    async def update_generated_content(
+        self,
+        cv_id: UUID,
+        user_id: UUID,
+        generated_content: dict,
+    ) -> Optional["GeneratedCV"]:
+        ...
+
+    @abstractmethod
+    async def soft_delete(self, cv_id: UUID, user_id: UUID) -> bool:
+        ...

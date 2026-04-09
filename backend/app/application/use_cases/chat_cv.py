@@ -1,0 +1,254 @@
+import re
+from typing import List, Dict, Optional, Tuple
+from uuid import UUID
+
+from app.domain.entities.generated_cv import GeneratedCV
+from app.application.interfaces.ai_service import IAIService
+from app.application.interfaces.repositories import IGeneratedCVRepository
+from app.logger import get_logger
+
+logger = get_logger("app.application.use_cases.chat_cv")
+
+class ChatCVUseCase:
+    def __init__(self, repo: IGeneratedCVRepository, ai_service: IAIService):
+        self.repo = repo
+        self.ai = ai_service
+
+    def _build_format_instruction(self, output_format: str) -> str:
+        if output_format == "markdown":
+            return (
+                "Đầu ra CV bắt buộc ở định dạng MARKDOWN. "
+                "Dùng heading, bullet list, bố cục rõ ràng."
+            )
+        if output_format == "docx":
+            return (
+                "Đầu ra CV phải là MARKDOWN sạch để hệ thống export DOCX. "
+                "Dùng heading rõ ràng, bullet chuẩn, không chèn ký tự lạ."
+            )
+        # rich_text
+        return (
+            "Đầu ra CV là RICH TEXT thuần văn bản dễ đọc, KHÔNG dùng cú pháp markdown (#, **, -, ```). "
+            "Có thể dùng tiêu đề dòng in hoa và xuống dòng hợp lý."
+        )
+
+    async def execute(
+        self,
+        user_id: UUID,
+        messages: List[Dict[str, str]],
+        output_format: str = "rich_text",
+    ) -> Tuple[str, Optional[UUID]]:
+        """
+        Process the chat message. If AI outputs <FINAL_CV>, extract it and save.
+        Returns (reply_text, generated_cv_id).
+        """
+        if output_format not in {"rich_text", "markdown", "docx"}:
+            output_format = "rich_text"
+
+        system_prompt = {
+            "role": "system",
+            "content": (
+                "Bạn là một chuyên gia tư vấn tạo CV (Resumé). Nhiệm vụ của bạn là thu thập thông tin từ user: "
+                "1. Vị trí ứng tuyển (Job Title). "
+                "2. Cấp độ (Level: Fresher, Junior, Middle, Senior, Manager, etc). "
+                "3. Mô tả công việc (Job Description / JD). "
+                "Nếu user chưa cung cấp đủ các thông tin trên, hãy hỏi lại user một cách thân thiện, tự nhiên. "
+                "Nếu user ĐÃ CUNG CẤP ĐỦ thông tin, hãy tiến hành viết CV ngay lập tức. "
+                f"Định dạng user yêu cầu: {output_format}. {self._build_format_instruction(output_format)} "
+                "QUAN TRỌNG NHẤT: Toàn bộ nội dung CV PHẢI được đặt bên trong thẻ <FINAL_CV> và </FINAL_CV>. "
+                "Tuyệt đối không được quên hai thẻ này khi bạn xuất ra CV. Các chữ bên ngoài thẻ này là lời nói với user."
+            )
+        }
+        
+        chat_messages = [system_prompt] + messages
+        
+        ai_reply = await self.ai.chat_interaction(chat_messages)
+        
+        # Check if <FINAL_CV> is in the response
+        match = re.search(r"<FINAL_CV>(.*?)</FINAL_CV>", ai_reply, flags=re.DOTALL | re.IGNORECASE)
+        cv_id = None
+        
+        # Also handle edge case where AI didn't close the tag properly or used markdown wrapper
+        if not match:
+            # Sometime LLM omits the closing tag if completion cuts off, or just writes the tag.
+            # We can also fallback to searching for # if it explicitly says something like "tạo CV thành công"
+            pass
+            
+        if match:
+            cv_content = match.group(1).strip()
+            # Clean out potential code fences inside the tag
+            if cv_content.startswith("```markdown"):
+                cv_content = cv_content.replace("```markdown", "", 1)
+                if cv_content.endswith("```"):
+                    cv_content = cv_content[:-3]
+            elif cv_content.startswith("```"):
+                cv_content = cv_content.replace("```", "", 1)
+                if cv_content.endswith("```"):
+                    cv_content = cv_content[:-3]
+            cv_content = cv_content.strip()
+            
+            # Clean the tag from the reply so the user doesn't see it raw if we just render it or save it to history
+            clean_reply = re.sub(r"<FINAL_CV>.*?</FINAL_CV>", "\n\n*(Đã tạo CV thành công)*", ai_reply, flags=re.DOTALL | re.IGNORECASE)
+
+            generated_payload = {
+                "format": output_format,
+                "content": cv_content,
+                "chat_history": messages + [{"role": "assistant", "content": clean_reply.strip()}],
+            }
+            if output_format in {"markdown", "docx"}:
+                generated_payload["markdown"] = cv_content
+            else:
+                generated_payload["text"] = cv_content
+
+            # Save it
+            cv_entity = GeneratedCV(
+                user_id=user_id,
+                target_jd_text="Được cung cấp qua chat",
+                base_profile_data={"level": "Unknown", "job_title": "CV Từ Chatbot"},
+                generated_content=generated_payload,
+                status="completed"
+            )
+            
+            await self.repo.create(cv_entity)
+            cv_id = cv_entity.id
+            
+            ai_reply = clean_reply
+            
+        return ai_reply, cv_id
+
+    async def execute_stream(
+        self,
+        user_id: UUID,
+        messages: List[Dict[str, str]],
+        output_format: str = "rich_text",
+    ):
+        import json
+        if output_format not in {"rich_text", "markdown", "docx"}:
+            output_format = "rich_text"
+
+        system_prompt = {
+            "role": "system",
+            "content": (
+                "Bạn là một chuyên gia tư vấn tạo CV (Resumé). Nhiệm vụ của bạn là thu thập thông tin từ user: "
+                "1. Vị trí ứng tuyển (Job Title). "
+                "2. Cấp độ (Level: Fresher, Junior, Middle, Senior, Manager, etc). "
+                "3. Mô tả công việc (Job Description / JD). "
+                "Nếu user chưa cung cấp đủ các thông tin trên, hãy hỏi lại user một cách thân thiện tự nhiên, ĐỒNG THỜI có thể đưa ra một bản CV mẫu (template) sơ bộ để họ gợi nhớ thông tin. "
+                "Nếu user ĐÃ CUNG CẤP ĐỦ thông tin, hãy tiến hành viết CV chi tiết cho họ. "
+                f"Định dạng yêu cầu: {output_format}. {self._build_format_instruction(output_format)} "
+                "CỰC KỲ QUAN TRỌNG (ĐIỀU KIỆN TIÊN QUYẾT): "
+                "BẤT KỲ KHI NÀO BẠN VIẾT NỘI DUNG CV (DÙ CHỈ LÀ BẢN DÀN Ý, BẢN NHÁP (TEMPLATE) HAY BẢN HOÀN CHỈNH), BẠN BẮT BUỘC PHẢI ĐẶT TOÀN BỘ NỘI DUNG CV ĐÓ VÀO BÊN TRONG CẶP THẺ `<FINAL_CV>` VÀ `</FINAL_CV>`. "
+                "Ví dụ:\n"
+                "Tôi đã làm cho bạn một bản mẫu đây:\n"
+                "<FINAL_CV>\n"
+                "# Tên của bạn\n"
+                "## Kỹ năng\n"
+                "...nội dung...\n"
+                "</FINAL_CV>\n"
+                "Hãy bổ sung thêm các phần còn thiếu nhé!\n\n"
+                "Hệ thống SẼ CHỈ trích xuất văn bản nằm trong thẻ `<FINAL_CV>` để hiển thị lên màn hình Document Preview của user. NẾU BẠN QUÊN THẺ NÀY, MÀN HÌNH PREVIEW SẼ BỊ TRỐNG! "
+                "Danh sách hoặc các gạch đầu dòng thuộc về CV PHẢI nằm trong thẻ này. Mọi chữ nằm ngoài thẻ sẽ chỉ là tin nhắn giao tiếp bình thường."
+            )
+        }
+        
+        chat_messages = [system_prompt] + messages
+        
+        buffer = ""
+        in_cv = False
+        cv_text = ""
+        ai_reply = ""
+        
+        async def save_cv_entity(cv_raw_text: str, reply_text: str) -> Optional[UUID]:
+            cv_content = cv_raw_text.strip()
+            if cv_content.startswith("```markdown"):
+                cv_content = cv_content.replace("```markdown", "", 1)
+                if cv_content.endswith("```"):
+                    cv_content = cv_content[:-3]
+            elif cv_content.startswith("```"):
+                cv_content = cv_content.replace("```", "", 1)
+                if cv_content.endswith("```"):
+                    cv_content = cv_content[:-3]
+            cv_content = cv_content.strip()
+            
+            clean_reply = reply_text + "\n\n*(Đã tạo CV thành công)*"
+            
+            generated_payload = {
+                "format": output_format,
+                "content": cv_content,
+                "chat_history": messages + [{"role": "assistant", "content": clean_reply.strip()}],
+            }
+            if output_format in {"markdown", "docx"}:
+                generated_payload["markdown"] = cv_content
+            else:
+                generated_payload["text"] = cv_content
+
+            cv_entity = GeneratedCV(
+                user_id=user_id,
+                target_jd_text="Được cung cấp qua chat",
+                base_profile_data={"level": "Unknown", "job_title": "CV Từ Chatbot"},
+                generated_content=generated_payload,
+                status="completed"
+            )
+            await self.repo.create(cv_entity)
+            return cv_entity.id
+
+        stream = self.ai.chat_interaction_stream(chat_messages)
+        
+        try:
+            # We must use proper async for loop when using async generators
+            async for chunk in stream:
+                buffer += chunk
+                
+                while True:
+                    if not in_cv:
+                        tag_idx = buffer.find("<FINAL_CV>")
+                        if tag_idx != -1:
+                            out = buffer[:tag_idx]
+                            buffer = buffer[tag_idx + len("<FINAL_CV>"):]
+                            if out:
+                                ai_reply += out
+                                yield f"event: chat_chunk\ndata: {json.dumps(out)}\n\n"
+                            in_cv = True
+                            yield f"event: signal\ndata: {json.dumps('START_CV')}\n\n"
+                            continue
+                        else:
+                            if len(buffer) > 20: # keep 20 chars buffer in case pattern matches partially
+                                out = buffer[:-20]
+                                buffer = buffer[-20:]
+                                ai_reply += out
+                                yield f"event: chat_chunk\ndata: {json.dumps(out)}\n\n"
+                            break
+                    else:
+                        tag_idx = buffer.find("</FINAL_CV>")
+                        if tag_idx != -1:
+                            out = buffer[:tag_idx]
+                            buffer = buffer[tag_idx + len("</FINAL_CV>"):]
+                            if out:
+                                cv_text += out
+                                yield f"event: cv_chunk\ndata: {json.dumps(out)}\n\n"
+                            in_cv = False
+                            
+                            c_id = await save_cv_entity(cv_text, ai_reply)
+                            yield f"event: cv_id\ndata: {json.dumps(str(c_id))}\n\n"
+                            continue
+                        else:
+                            if len(buffer) > 20:
+                                out = buffer[:-20]
+                                buffer = buffer[-20:]
+                                cv_text += out
+                                yield f"event: cv_chunk\ndata: {json.dumps(out)}\n\n"
+                            break
+        except Exception as e:
+            logger.error("Error in AI stream: %s", str(e), exc_info=True)
+            yield f"event: error\ndata: {json.dumps(str(e))}\n\n"
+            
+        if buffer:
+            if not in_cv:
+                ai_reply += buffer
+                yield f"event: chat_chunk\ndata: {json.dumps(buffer)}\n\n"
+            else:
+                cv_text += buffer
+                yield f"event: cv_chunk\ndata: {json.dumps(buffer)}\n\n"
+                # If stream closed abruptly without closing tag, we still save
+                c_id = await save_cv_entity(cv_text, ai_reply)
+                yield f"event: cv_id\ndata: {json.dumps(str(c_id))}\n\n"
+

@@ -17,5 +17,5 @@ cd "$ROOT_DIR/backend"
 conda run -n "$CONDA_ENV" --no-capture-output \
     uvicorn app.main:app \
     --host 0.0.0.0 \
-    --port 8000 \
+    --port 8020 \
     --reload

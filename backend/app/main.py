@@ -49,7 +49,7 @@ def create_app() -> FastAPI:
         start = time.perf_counter()
         try:
             response = await call_next(request)
-        except Exception as exc:
+        except Exception:
             duration = (time.perf_counter() - start) * 1000
             logger.error(
                 f"[{request_id}] ✖ {method} {path} — unhandled exception "
@@ -111,10 +111,13 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.error("🔄 Crash recovery failed: %s", exc, exc_info=True)
 
+    from app.presentation.generated_cv_routes import router as generated_cv_router
+
     # Routes
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(analysis_router, prefix="/api/v1")
     app.include_router(cv_file_router, prefix="/api/v1")
+    app.include_router(generated_cv_router, prefix="/api/v1")
 
     @app.get("/health")
     async def health():

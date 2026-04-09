@@ -8,14 +8,14 @@ services:
       POSTGRES_PASSWORD: cvreview_pass
       POSTGRES_DB: cvreview
     ports:
-      - "5432:5432"
+      - "5420:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6320:6379"
 
   minio:
     image: minio/minio:latest
@@ -23,8 +23,8 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9020:9000"
+      - "9021:9001"
     volumes:
       - minio-data:/data
     command: server /data --console-address ":9001"
@@ -37,7 +37,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+      - "8020:8020"
     env_file:
       - .env
     depends_on:
@@ -47,7 +47,7 @@ services:
     volumes:
       - ./backend:/app
       - uploads:/app/uploads
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8020 --reload
 
   celery-worker:
     build: ./backend
@@ -65,7 +65,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "3000:3000"
+      - "3020:3020"
     depends_on:
       - backend
     volumes:

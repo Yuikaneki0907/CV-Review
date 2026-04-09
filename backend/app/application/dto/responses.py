@@ -14,6 +14,7 @@ class UserResponse(BaseModel):
     id: UUID
     email: str
     full_name: str
+    phone_number: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -63,6 +64,9 @@ class AnalysisResponse(BaseModel):
     rewritten_cv: Optional[str] = None
     diff_segments: Optional[List[DiffSegmentResponse]] = None
     hallucination_warnings: Optional[List[HallucinationWarningResponse]] = None
+    jd_evaluation: Optional[Dict] = None
+    interview_questions: Optional[List[Dict]] = None
+    salary_negotiation: Optional[Dict] = None
 
     model_config = {"from_attributes": True}
 
@@ -75,3 +79,31 @@ class AnalysisListResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class GeneratedCVListResponse(BaseModel):
+    id: UUID
+    status: str
+    target_jd_text: Optional[str] = None
+    job_title: Optional[str] = None
+    level: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class GeneratedCVResponse(BaseModel):
+    id: UUID
+    status: str
+    target_jd_text: Optional[str] = None
+    base_profile_data: Optional[Dict] = None
+    generated_content: Dict
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChatContextResponse(BaseModel):
+    reply: str
+    generated_cv_id: Optional[UUID] = None
+

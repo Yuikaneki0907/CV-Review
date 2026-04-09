@@ -99,3 +99,17 @@ async def download_cv_file(
         filename=cv_file.original_filename,
         expires_in=3600,
     )
+
+@router.delete("/{file_id}", status_code=204)
+async def delete_cv_file(
+    file_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Soft delete a CV file."""
+    repo = CVFileRepository(session)
+    success = await repo.soft_delete(file_id, user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="CV file not found or already deleted")
+    await session.commit()
+    return None

@@ -40,6 +40,24 @@ class UserRepository(IUserRepository):
         db_user = result.scalar_one_or_none()
         return self._to_entity(db_user) if db_user else None
 
+    async def update(self, user_id: UUID, full_name: Optional[str] = None, phone_number: Optional[str] = None) -> Optional[User]:
+        from datetime import datetime, timezone
+        result = await self._session.execute(
+            select(UserModel).where(UserModel.id == user_id)
+        )
+        db_user = result.scalar_one_or_none()
+        if not db_user:
+            return None
+        
+        if full_name is not None:
+            db_user.full_name = full_name
+        if phone_number is not None:
+            db_user.phone_number = phone_number
+            
+        db_user.updated_at = datetime.now(timezone.utc)
+        await self._session.flush()
+        return self._to_entity(db_user)
+
     @staticmethod
     def _to_entity(model: UserModel) -> User:
         return User(

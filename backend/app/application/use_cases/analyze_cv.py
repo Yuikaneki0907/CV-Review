@@ -1,13 +1,12 @@
 import difflib
 import json
 import time
-from typing import List, Optional
+from typing import List
 from uuid import UUID
 
 import numpy as np
 
 from app.domain.entities.analysis_result import AnalysisResult
-from app.domain.entities.cv import AnalysisStatus
 from app.domain.value_objects.score import MatchScore
 from app.domain.value_objects.skill import Skill, SkillAnalysis
 from app.domain.value_objects.diff_segment import DiffSegment, DiffResult, DiffType
@@ -29,6 +28,7 @@ STEPS = [
     {"key": "rewrite", "label": "Viết lại CV"},
     {"key": "truthcheck", "label": "Kiểm tra hallucination"},
     {"key": "diff", "label": "Tạo visual diff"},
+    {"key": "insights", "label": "Phân tích JD nâng cao"},
 ]
 
 
@@ -144,6 +144,24 @@ class AnalyzeCVUseCase:
             )
             await self._analysis_repo.update(analysis)
             self._publish_step(analysis_id, "diff", "done", step_ms)
+
+            # Step 6: Advanced Insights
+            self._publish_step(analysis_id, "insights", "running")
+            step_start = time.perf_counter()
+            import asyncio
+            jd_eval_task = self._ai_service.evaluate_jd(analysis.jd_text, analysis.jd_extracted)
+            qa_task = self._ai_service.suggest_interview_questions(analysis.cv_extracted, analysis.jd_extracted)
+            salary_task = self._ai_service.negotiate_salary(analysis.cv_extracted, analysis.jd_extracted)
+            
+            jd_eval_res, qa_res, salary_res = await asyncio.gather(jd_eval_task, qa_task, salary_task)
+            analysis.jd_evaluation = jd_eval_res
+            analysis.interview_questions = qa_res
+            analysis.salary_negotiation = salary_res
+            
+            step_ms = (time.perf_counter() - step_start) * 1000
+            logger.info("Step 6 DONE (insights): %.0fms", step_ms)
+            await self._analysis_repo.update(analysis)
+            self._publish_step(analysis_id, "insights", "done", step_ms)
 
             analysis.mark_completed()
             total_ms = (time.perf_counter() - pipeline_start) * 1000

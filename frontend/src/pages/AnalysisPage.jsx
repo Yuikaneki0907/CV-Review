@@ -9,6 +9,7 @@ const PIPELINE_STEPS = [
   { key: 'score', label: 'Matching & Scoring' },
   { key: 'rewrite', label: 'Viết lại CV' },
   { key: 'truthcheck', label: 'Kiểm tra hallucination' },
+  { key: 'insights', label: 'Tạo gợi ý (AI Insights)' },
   { key: 'diff', label: 'Tạo visual diff' },
 ];
 
@@ -225,9 +226,18 @@ export default function AnalysisPage() {
       )}
 
       {/* Tabs */}
-      <div className="tab-bar">
+      <div className="tab-bar" style={{ overflowX: 'auto', display: 'flex', whiteSpace: 'nowrap' }}>
         <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>
           Tổng quan
+        </button>
+        <button className={tab === 'jd_eval' ? 'active' : ''} onClick={() => setTab('jd_eval')}>
+          Phân tích JD
+        </button>
+        <button className={tab === 'interview' ? 'active' : ''} onClick={() => setTab('interview')}>
+          Gợi ý Phỏng vấn
+        </button>
+        <button className={tab === 'salary' ? 'active' : ''} onClick={() => setTab('salary')}>
+          Đề xuất Lương
         </button>
         <button className={tab === 'diff' ? 'active' : ''} onClick={() => setTab('diff')}>
           So sánh CV
@@ -246,6 +256,74 @@ export default function AnalysisPage() {
               <SkillList title="Kỹ năng thiếu" icon="✕" items={data.missing_skills} type="missing" />
               <SkillList title="Kỹ năng bổ sung" icon="+" items={data.extra_skills} type="extra" />
             </div>
+          </div>
+        )}
+
+        {tab === 'jd_eval' && (
+          <div className="jd-eval-tab fade-in">
+            <h3>Phân tích JD</h3>
+            {data.jd_evaluation ? (
+              <div className="card-grid">
+                <div className="card">
+                  <h4>Yêu cầu chính</h4>
+                  <p>{data.jd_evaluation.core_requirements}</p>
+                </div>
+                <div className="card">
+                  <h4>Mức độ phù hợp</h4>
+                  <p>{data.jd_evaluation.difficulty_level}</p>
+                </div>
+                <div className="card">
+                  <h4>Nhận xét</h4>
+                  <p>{data.jd_evaluation.strategic_advice}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="empty">Chưa có dữ liệu phân tích JD</p>
+            )}
+          </div>
+        )}
+
+        {tab === 'interview' && (
+          <div className="interview-tab fade-in">
+            <h3>Gợi ý câu hỏi phỏng vấn</h3>
+            <p className="subtitle">Dựa trên JD và hồ sơ, bạn có thể chuẩn bị hoặc hỏi ngược nhà tuyển dụng các câu sau:</p>
+            {data.interview_questions?.length > 0 ? (
+              <div className="qa-list">
+                {data.interview_questions.map((q, i) => (
+                  <div key={i} className="qa-card">
+                    <div className="qa-question"><strong>Q:</strong> {q.question}</div>
+                    <div className="qa-reason"><em>Mục đích:</em> {q.reason}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="empty">Chưa có gợi ý câu hỏi</p>
+            )}
+          </div>
+        )}
+
+        {tab === 'salary' && (
+          <div className="salary-tab fade-in">
+            <h3>Đề xuất Deal Lương</h3>
+            {data.salary_negotiation ? (
+              <div className="salary-content">
+                <div className="salary-range card primary-card">
+                  <h4>Khoảng lương dự kiến</h4>
+                  <div className="range-value">{data.salary_negotiation.estimated_range}</div>
+                  <p>{data.salary_negotiation.market_context}</p>
+                </div>
+                <div className="card">
+                  <h4>Chiến lược đàm phán</h4>
+                  <ul>
+                    {data.salary_negotiation.negotiation_tips?.map((tip, i) => (
+                      <li key={i}>{tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <p className="empty">Chưa có dữ liệu đề xuất lương</p>
+            )}
           </div>
         )}
 

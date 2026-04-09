@@ -16,7 +16,7 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await registerUser(form.email, form.password, form.full_name);
-      navigate('/');
+      navigate('/upload');
     } catch (err) {
       setError(err.response?.data?.detail || 'Đăng ký thất bại');
     } finally {

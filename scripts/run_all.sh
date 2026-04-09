@@ -23,6 +23,16 @@ trap cleanup EXIT INT TERM
 
 PIDS=()
 
+# ─── 0. Kill stale processes from previous runs ──
+echo "🧹 Killing stale processes from previous runs..."
+pkill -f "uvicorn app.main:app" 2>/dev/null || true
+pkill -f "celery -A app.infrastructure.celery" 2>/dev/null || true
+sleep 1
+
+# ─── 0. Increase File Descriptor Limit ────────
+# Tăng số lượng file được phép mở để tránh lỗi EMFILE (os error 24) ở uvicorn và vite
+ulimit -n 65536 2>/dev/null || true
+
 # ─── 1. Infrastructure ────────────────────────
 echo "🐳 [1/4] Starting infrastructure (DB, Redis, MinIO)..."
 cd "$ROOT_DIR"
@@ -49,7 +59,7 @@ echo ""
 echo "🚀 [2/4] Starting FastAPI backend..."
 cd "$ROOT_DIR/backend"
 conda run -n "$CONDA_ENV" --no-capture-output \
-    uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
+    uvicorn app.main:app --host 0.0.0.0 --port 8020 &
 PIDS+=($!)
 
 # ─── 3. Worker ─────────────────────────────────
@@ -65,7 +75,7 @@ cd "$ROOT_DIR/frontend"
 if [ ! -d "node_modules" ]; then
     npm install
 fi
-npx vite --host 0.0.0.0 --port 5173 &
+npx vite --host 0.0.0.0 --port 5120 &
 PIDS+=($!)
 
 # ─── Ready ─────────────────────────────────────
@@ -73,10 +83,10 @@ echo ""
 echo "════════════════════════════════════════════"
 echo "  ✅ CV-Review is running!"
 echo ""
-echo "  Frontend : http://localhost:5173"
-echo "  Backend  : http://localhost:8000"
-echo "  API Docs : http://localhost:8000/docs"
-echo "  MinIO UI : http://localhost:9001"
+echo "  Frontend : http://localhost:5120"
+echo "  Backend  : http://localhost:8020"
+echo "  API Docs : http://localhost:8020/docs"
+echo "  MinIO UI : http://localhost:9021"
 echo ""
 echo "  Press Ctrl+C to stop all services"
 echo "════════════════════════════════════════════"

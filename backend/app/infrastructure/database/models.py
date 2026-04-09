@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, String, Text, Float, DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import Column, String, Text, Float, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -17,7 +17,9 @@ class UserModel(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255), default="")
+    phone_number = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
 
     analyses = relationship("AnalysisModel", back_populates="user", lazy="selectin")
 
@@ -54,9 +56,15 @@ class AnalysisModel(Base):
     # Truth-Anchoring
     hallucination_warnings = Column(JSONB, nullable=True)
 
+    # Advanced Insights
+    jd_evaluation = Column(JSONB, nullable=True)
+    interview_questions = Column(JSONB, nullable=True)
+    salary_negotiation = Column(JSONB, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)
 
     user = relationship("UserModel", back_populates="analyses")
 
@@ -75,7 +83,26 @@ class CVFileModel(Base):
     version = Column(Float, default=1)
 
     created_at = Column(DateTime, default=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True)
 
     user = relationship("UserModel")
     analysis = relationship("AnalysisModel")
+
+
+class GeneratedCVModel(Base):
+    __tablename__ = "generated_cvs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+
+    target_jd_text = Column(Text, nullable=True)
+    base_profile_data = Column(JSONB, nullable=True)
+
+    generated_content = Column(JSONB, nullable=False)
+    status = Column(String(20), default="draft")
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True)
+
+    user = relationship("UserModel")
 

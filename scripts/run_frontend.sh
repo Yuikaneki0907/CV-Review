@@ -19,4 +19,4 @@ if [ ! -d "node_modules" ]; then
     echo ""
 fi
 
-npx vite --host 0.0.0.0 --port 5173
+npx vite --host 0.0.0.0 --port 5120

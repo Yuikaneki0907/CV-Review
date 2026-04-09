@@ -45,7 +45,7 @@ class CVFileRepository(ICVFileRepository):
     ) -> List[CVFile]:
         result = await self._session.execute(
             select(CVFileModel)
-            .where(CVFileModel.user_id == user_id)
+            .where(CVFileModel.user_id == user_id, CVFileModel.deleted_at.is_(None))
             .order_by(CVFileModel.created_at.desc())
             .limit(limit)
             .offset(offset)
@@ -61,6 +61,18 @@ class CVFileRepository(ICVFileRepository):
         )
         current_max = int(result.scalar_one())
         return current_max + 1
+
+    async def soft_delete(self, file_id: UUID, user_id: UUID) -> bool:
+        from datetime import datetime, timezone
+        result = await self._session.execute(
+            select(CVFileModel).where(CVFileModel.id == file_id, CVFileModel.user_id == user_id)
+        )
+        model = result.scalar_one_or_none()
+        if not model:
+            return False
+        model.deleted_at = datetime.now(timezone.utc)
+        await self._session.flush()
+        return True
 
     @staticmethod
     def _to_entity(model: CVFileModel) -> CVFile:

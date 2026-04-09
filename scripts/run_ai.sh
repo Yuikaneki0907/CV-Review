@@ -18,9 +18,9 @@ docker compose up -d db redis minio
 
 echo ""
 echo "✅ Infrastructure services started:"
-echo "   PostgreSQL : localhost:5432"
-echo "   Redis      : localhost:6379"
-echo "   MinIO      : localhost:9000 (console: localhost:9001)"
+echo "   PostgreSQL : localhost:5420"
+echo "   Redis      : localhost:6320"
+echo "   MinIO      : localhost:9020 (console: localhost:9021)"
 echo ""
 echo "💡 Tiếp theo, chạy:"
 echo "   ./scripts/run_backend.sh   # FastAPI"

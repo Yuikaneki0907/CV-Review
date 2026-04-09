@@ -35,8 +35,13 @@ class AnalysisResult:
     rewritten_cv: Optional[str] = None
     diff_result: Optional[DiffResult] = None
 
-    # Truth-Anchoring
+    # Core Truth-Anchoring
     hallucination_report: Optional[HallucinationReport] = None
+
+    # Advanced Insights
+    jd_evaluation: Optional[dict] = None
+    interview_questions: Optional[list] = None
+    salary_negotiation: Optional[dict] = None
 
     # Timestamps
     created_at: datetime = field(default_factory=datetime.utcnow)

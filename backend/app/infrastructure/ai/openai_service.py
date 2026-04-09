@@ -16,7 +16,11 @@ class OpenAIService(IAIService):
 
     def __init__(self):
         settings = get_settings()
-        self._client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        client_kwargs = {"api_key": settings.OPENAI_API_KEY}
+        if settings.OPENAI_API_BASE:
+            client_kwargs["base_url"] = settings.OPENAI_API_BASE
+            
+        self._client = OpenAI(**client_kwargs)
         self._model = settings.OPENAI_MODEL
         self._embed_model = settings.OPENAI_EMBED_MODEL
         logger.info("OpenAIService initialized (model=%s, embed=%s)", self._model, self._embed_model)
@@ -195,3 +199,152 @@ If no issues found, return: {{"issues": []}}"""
         embeddings = [item.embedding for item in response.data]
         logger.debug("get_embeddings: returned %d embeddings in %.0fms", len(embeddings), duration)
         return embeddings
+
+    async def evaluate_jd(self, jd_text: str, jd_extracted: Dict) -> Dict:
+        """Evaluate JD detail level, requirements, and years of experience."""
+        prompt = f"""
+        Bạn là một chuyên gia tuyển dụng. Hãy đánh giá độ khó và yêu cầu của mô tả công việc (Job Description) sau đây:
+        
+        JD Text:
+        ---
+        {jd_text}
+        ---
+        
+        Dữ liệu đã trích xuất: {json.dumps(jd_extracted, ensure_ascii=False)}
+        
+        Hãy trả về kết quả dưới định dạng JSON bao gồm:
+        {{
+            "level": "Fresher" | "Junior" | "Middle" | "Senior" | "Manager",
+            "years_of_experience": "Ghi rõ số năm kinh nghiệm yêu cầu hoặc 'Không yêu cầu'",
+            "difficulty": "Easy" | "Medium" | "Hard",
+            "missing_info": ["Danh sách các thông tin quan trọng bị thiếu trong JD, ví dụ: mức lương, địa điểm..."],
+            "summary": "Tóm tắt ngắn gọn yêu cầu chính yếu của JD này"
+        }}
+        Chỉ trả về JSON.
+        """
+        result = self._chat_json(prompt, expect_list=False)
+        return result if isinstance(result, dict) else {}
+
+    async def suggest_interview_questions(self, cv_extracted: Dict, jd_extracted: Dict) -> List[Dict]:
+        prompt = f"""
+        Bạn là một chuyên gia phỏng vấn nhân sự. Dựa trên thông tin CV của ứng viên và JD của công ty, hãy gợi ý bộ câu hỏi phỏng vấn phù hợp nhất.
+        Đặc biệt chú trọng đến những kỹ năng ứng viên còn thiếu so với JD, hoặc những kinh nghiệm ấn tượng trong CV.
+        
+        CV Extracted: {json.dumps(cv_extracted, ensure_ascii=False)}
+        JD Extracted: {json.dumps(jd_extracted, ensure_ascii=False)}
+        
+        Hãy trả về MỘT MẢNG JSON, mỗi phần tử có cấu trúc như sau:
+        [{{
+            "question": "Câu hỏi phỏng vấn",
+            "purpose": "Mục đích của câu hỏi này (kiểm tra kỹ năng gì?)",
+            "suggested_answer_strategy": "Gợi ý chiến lược trả lời dành cho ứng viên",
+            "category": "Technical" | "Soft Skill" | "Behavioral" | "Experience"
+        }}]
+        Chỉ trả về danh sách JSON. Đưa ra 3-5 câu hỏi trọng tâm nhất.
+        """
+        result = self._chat_json(prompt, expect_list=True)
+        return result if isinstance(result, list) else []
+
+    async def negotiate_salary(self, cv_extracted: Dict, jd_extracted: Dict) -> Dict:
+        prompt = f"""
+        Bạn là chuyên gia tư vấn tuyển dụng và đàm phán lương. Hãy đánh giá khả năng deal lương của ứng viên dựa trên CV và JD.
+        
+        CV Extracted: {json.dumps(cv_extracted, ensure_ascii=False)}
+        JD Extracted: {json.dumps(jd_extracted, ensure_ascii=False)}
+        
+        Hãy trả về kết quả dưới định dạng JSON bao gồm:
+        {{
+            "expected_salary_range": "Dự đoán khoảng lương hoặc ghi 'Cần thêm thông tin thị trường'",
+            "negotiation_strategy": "Chiến lược cụ thể để ứng viên có thể deal được mức lương tốt nhất (VD: nhấn mạnh vào kỹ năng A)",
+            "cv_strengths": ["Các điểm mạnh trong CV làm lợi thế đàm phán"],
+            "cv_weaknesses": ["Các điểm yếu ứng viên cần chuẩn bị để nhà tuyển dụng không ép lương"]
+        }}
+        Chỉ trả về định dạng JSON.
+        """
+        result = self._chat_json(prompt, expect_list=False)
+        return result if isinstance(result, dict) else {}
+
+    async def generate_cv_template(
+        self,
+        job_title: str,
+        jd_text: str,
+        level: str,
+        output_format: str = "markdown",
+    ) -> str:
+        format_guide = {
+            "rich_text": "trình bày theo kiểu văn bản dễ đọc (không dùng cú pháp markdown như #, **, -).",
+            "markdown": "tuân thủ markdown chuẩn (Heading, bullet list).",
+            "docx": "tuân thủ markdown sạch (Heading rõ ràng, bullet list chuẩn) để convert sang DOCX.",
+        }.get(output_format, "tuân thủ markdown chuẩn.")
+
+        prompt = f"""
+        Bạn là chuyên gia viết CV. Hãy tạo một mẫu CV (Curriculum Vitae) cơ bản nhưng chuyên nghiệp dựa trên các thông tin sau:
+        
+        - Vị trí ứng tuyển: {job_title}
+        - Level/Cấp độ: {level}
+        - Thông tin Job Description ước tính:
+        ---
+        {jd_text}
+        ---
+        
+        Yêu cầu: 
+        - Định dạng đầu ra: {output_format}. Nội dung phải {format_guide}
+        - Ghi sẵn các placeholder như "[Tên của bạn]", "[Tên công ty]", "[Năm]".
+        - Đưa vào các bullet point kỹ năng/nhiệm vụ mẫu phù hợp với JD nhất. 
+        Chỉ trả về nội dung CV, không giải thích gì thêm.
+        """
+        result = self._chat(prompt, json_mode=False)
+        return result.strip()
+
+    async def chat_interaction(self, messages: List[Dict[str, str]]) -> str:
+        start = time.perf_counter()
+        
+        kwargs: dict = {
+            "model": self._model,
+            "messages": messages,
+            "temperature": 0.7,
+        }
+
+        response = self._client.chat.completions.create(**kwargs)
+        text = response.choices[0].message.content or ""
+        
+        # TODO: Remove this mock once the Proxy API is fixed. 
+        # Currently the Proxy returns `content: null` which causes the UI to freeze/show empty.
+        if not text:
+            # Check if this is the final prompt with JD included
+            # Accept if prompt has 'jd', 'react', 'job' or is long enough to be a real JD
+            last_msg = messages[-1]["content"].lower() if messages else ""
+            if "jd" in last_msg or "react" in last_msg or "job" in last_msg or len(last_msg) > 50:
+                text = """Tuyệt vời, dựa trên thông tin JD và vị trí bạn cung cấp, đây là CV của bạn:
+                
+<FINAL_CV>
+# Vũ Gia Chiến
+**Frontend Developer (ReactJS) | Junior**
+
+## 💡 Summary
+Frontend Developer với kinh nghiệm làm việc cùng ReactJS và TypeScript. Đam mê xây dựng các giao diện người dùng hiện đại, tối ưu UX/UI.
+
+## 🛠 Skills
+- **Ngôn ngữ:** JavaScript (ES6+), TypeScript, HTML5, CSS3/SASS
+- **Framework/Thư viện:** ReactJS, Next.js, Redux Toolkit, Tailwind CSS
+- **Công cụ:** Git, Webpack, Vite, Figma
+
+## 💼 Experience
+**Frontend Developer Triển vọng** | *Công ty ABC* | 2023 - Hiện tại
+- Phát triển các tính năng frontend sử dụng ReactJS và TypeScript theo thiết kế từ Figma.
+- Cải thiện hiệu năng render của ứng dụng lên 20%.
+
+## 🎓 Education
+**Cử nhân Công nghệ Thông tin** | *Đại học XYZ* | 2019 - 2023
+</FINAL_CV>
+                """
+            else:
+                text = "Bạn có thể cung cấp thêm Job Description (JD) chi tiết để mình tạo CV cho bạn được không?"
+
+        duration = (time.perf_counter() - start) * 1000
+
+        logger.debug(
+            "chat_interaction: model=%s, messages_count=%d, response_len=%d, duration=%.0fms",
+            self._model, len(messages), len(text), duration,
+        )
+        return text

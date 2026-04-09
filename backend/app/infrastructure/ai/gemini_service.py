@@ -183,3 +183,83 @@ Return ONLY valid JSON."""
                 str(e), text[:500],
             )
             return [] if expect_list else {}
+
+    async def evaluate_jd(self, jd_text: str, jd_extracted: Dict) -> Dict:
+        return {}
+
+    async def suggest_interview_questions(self, cv_extracted: Dict, jd_extracted: Dict) -> List[Dict]:
+        return []
+
+    async def negotiate_salary(self, cv_extracted: Dict, jd_extracted: Dict) -> Dict:
+        return {}
+
+    async def generate_cv_template(
+        self,
+        job_title: str,
+        jd_text: str,
+        level: str,
+        output_format: str = "markdown",
+    ) -> str:
+        format_guide = {
+            "rich_text": "trình bày theo kiểu văn bản dễ đọc, không dùng cú pháp markdown như #, **, -.",
+            "markdown": "tuân thủ markdown chuẩn, có heading và bullet list rõ ràng.",
+            "docx": "tuân thủ markdown sạch để có thể export DOCX chính xác (heading/bullet rõ ràng).",
+        }.get(output_format, "tuân thủ markdown chuẩn.")
+
+        prompt = f"""
+        Bạn là chuyên gia viết CV. Hãy tạo một mẫu CV chuyên nghiệp dựa trên:
+        - Vị trí ứng tuyển: {job_title}
+        - Cấp độ: {level}
+        - JD tham chiếu:
+        ---
+        {jd_text}
+        ---
+
+        Yêu cầu:
+        - Định dạng đầu ra: {output_format}. Nội dung phải {format_guide}
+        - Dùng placeholder như [Họ và tên], [Email], [Tên công ty], [Năm].
+        - Bố cục nên có: Thông tin cá nhân, Mục tiêu nghề nghiệp, Kỹ năng, Kinh nghiệm, Dự án, Học vấn.
+        - Chỉ trả về nội dung CV, không thêm giải thích.
+        """
+
+        response = self._client.models.generate_content(
+            model=self._gen_model,
+            contents=prompt,
+        )
+        return (response.text or "").strip()
+
+    async def chat_interaction(self, messages: List[Dict[str, str]]) -> str:
+        prompt_parts = []
+        for msg in messages:
+            role = msg.get("role", "user").upper()
+            content = msg.get("content", "")
+            prompt_parts.append(f"{role}:\n{content}")
+        
+        prompt = "\n\n".join(prompt_parts)
+        
+        start = time.perf_counter()
+        response = self._client.models.generate_content(
+            model=self._gen_model,
+            contents=prompt,
+        )
+        duration = (time.perf_counter() - start) * 1000
+        logger.info("chat_interaction: response_len=%d chars, duration=%.0fms", len(response.text), duration)
+        return response.text
+
+    async def chat_interaction_stream(self, messages: List[Dict[str, str]]):
+        prompt_parts = []
+        for msg in messages:
+            role = msg.get("role", "user").upper()
+            content = msg.get("content", "")
+            prompt_parts.append(f"{role}:\n{content}")
+        
+        prompt = "\n\n".join(prompt_parts)
+        
+        logger.info("chat_interaction_stream: streaming response")
+        response_stream = self._client.models.generate_content_stream(
+            model=self._gen_model,
+            contents=prompt,
+        )
+        for chunk in response_stream:
+            if chunk.text:
+                yield chunk.text

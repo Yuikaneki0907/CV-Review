@@ -243,6 +243,20 @@ async def get_analysis(
 
     return _to_response(analysis)
 
+@router.delete("/{analysis_id}", status_code=204)
+async def delete_analysis(
+    analysis_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Soft delete an analysis history."""
+    analysis_repo = AnalysisRepository(session)
+    success = await analysis_repo.soft_delete(analysis_id, user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Không tìm thấy kết quả phân tích hoặc đã bị xóa")
+    await session.commit()
+    return None
+
 
 @router.get("/{analysis_id}/stream")
 async def stream_analysis(
@@ -400,4 +414,7 @@ def _to_response(analysis: AnalysisResult) -> AnalysisResponse:
         rewritten_cv=analysis.rewritten_cv,
         diff_segments=diff_segments,
         hallucination_warnings=warnings,
+        jd_evaluation=analysis.jd_evaluation,
+        interview_questions=analysis.interview_questions,
+        salary_negotiation=analysis.salary_negotiation,
     )
