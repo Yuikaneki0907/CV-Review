@@ -36,6 +36,7 @@ class ChatMessageRequest(BaseModel):
 class ChatContextRequest(BaseModel):
     messages: list[ChatMessageRequest]
     output_format: Literal["rich_text", "markdown", "docx"] = "rich_text"
+    template_id: Optional[str] = None
 
 
 class GeneratedCVUpdateRequest(BaseModel):

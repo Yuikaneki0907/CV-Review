@@ -5,6 +5,7 @@ from uuid import UUID
 from app.domain.entities.generated_cv import GeneratedCV
 from app.application.interfaces.ai_service import IAIService
 from app.application.interfaces.repositories import IGeneratedCVRepository
+from app.domain.cv_templates import get_template
 from app.logger import get_logger
 
 logger = get_logger("app.application.use_cases.chat_cv")
@@ -31,11 +32,25 @@ class ChatCVUseCase:
             "Có thể dùng tiêu đề dòng in hoa và xuống dòng hợp lý."
         )
 
+    def _build_template_instruction(self, template_id: Optional[str]) -> str:
+        if not template_id:
+            return ""
+        tpl = get_template(template_id)
+        if not tpl:
+            return ""
+        return (
+            f"\n\nUser đã chọn template '{tpl['name']}'. "
+            f"BẮT BUỘC viết CV theo ĐÚNG cấu trúc heading/section của template dưới đây. "
+            f"Giữ nguyên thứ tự các section, chỉ điền nội dung thực tế thay cho placeholder:\n\n"
+            f"--- TEMPLATE ---\n{tpl['skeleton']}\n--- END TEMPLATE ---\n"
+        )
+
     async def execute(
         self,
         user_id: UUID,
         messages: List[Dict[str, str]],
         output_format: str = "rich_text",
+        template_id: Optional[str] = None,
     ) -> Tuple[str, Optional[UUID]]:
         """
         Process the chat message. If AI outputs <FINAL_CV>, extract it and save.
@@ -55,7 +70,10 @@ class ChatCVUseCase:
                 "Nếu user ĐÃ CUNG CẤP ĐỦ thông tin, hãy tiến hành viết CV ngay lập tức. "
                 f"Định dạng user yêu cầu: {output_format}. {self._build_format_instruction(output_format)} "
                 "QUAN TRỌNG NHẤT: Toàn bộ nội dung CV PHẢI được đặt bên trong thẻ <FINAL_CV> và </FINAL_CV>. "
-                "Tuyệt đối không được quên hai thẻ này khi bạn xuất ra CV. Các chữ bên ngoài thẻ này là lời nói với user."
+                "Tuyệt đối không được quên hai thẻ này khi bạn xuất ra CV. Các chữ bên ngoài thẻ này là lời nói với user. "
+                "QUY TẮC TUYỆT ĐỐI VỀ HÌNH THỨC CV: KHÔNG BAO GIỜ dùng emoji, icon, biểu tượng cảm xúc (📍🏠📱📧✉️📎🌟⭐💼 v.v.) trong nội dung CV. "
+                "CV chuyên nghiệp chỉ dùng văn bản thuần, heading, bullet point chuẩn. Tuyệt đối tối giản, không trang trí."
+                + self._build_template_instruction(template_id)
             )
         }
         
@@ -120,6 +138,7 @@ class ChatCVUseCase:
         user_id: UUID,
         messages: List[Dict[str, str]],
         output_format: str = "rich_text",
+        template_id: Optional[str] = None,
     ):
         import json
         if output_format not in {"rich_text", "markdown", "docx"}:
@@ -146,7 +165,10 @@ class ChatCVUseCase:
                 "</FINAL_CV>\n"
                 "Hãy bổ sung thêm các phần còn thiếu nhé!\n\n"
                 "Hệ thống SẼ CHỈ trích xuất văn bản nằm trong thẻ `<FINAL_CV>` để hiển thị lên màn hình Document Preview của user. NẾU BẠN QUÊN THẺ NÀY, MÀN HÌNH PREVIEW SẼ BỊ TRỐNG! "
-                "Danh sách hoặc các gạch đầu dòng thuộc về CV PHẢI nằm trong thẻ này. Mọi chữ nằm ngoài thẻ sẽ chỉ là tin nhắn giao tiếp bình thường."
+                "Danh sách hoặc các gạch đầu dòng thuộc về CV PHẢI nằm trong thẻ này. Mọi chữ nằm ngoài thẻ sẽ chỉ là tin nhắn giao tiếp bình thường. "
+                "QUY TẮC TUYỆT ĐỐI VỀ HÌNH THỨC CV: KHÔNG BAO GIỜ dùng emoji, icon, biểu tượng cảm xúc (📍🏠📱📧✉️📎🌟⭐💼 v.v.) trong nội dung CV. "
+                "CV chuyên nghiệp chỉ dùng văn bản thuần, heading, bullet point chuẩn. Tuyệt đối tối giản, không trang trí."
+                + self._build_template_instruction(template_id)
             )
         }
         

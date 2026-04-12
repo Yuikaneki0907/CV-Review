@@ -67,10 +67,11 @@ export const listGeneratedCVs = (limit = 20, offset = 0) => api.get(`/generated-
 export const getGeneratedCV = (id) => api.get(`/generated-cvs/${id}`);
 export const deleteGeneratedCV = (id) => api.delete(`/generated-cvs/${id}`);
 export const updateGeneratedCV = (id, data) => api.patch(`/generated-cvs/${id}`, data);
-export const chatCVGeneration = (messages, outputFormat = 'rich_text') =>
+export const chatCVGeneration = (messages, outputFormat = 'rich_text', templateId = null) =>
   api.post('/generated-cvs/chat', {
     messages,
     output_format: outputFormat,
+    ...(templateId && { template_id: templateId }),
   });
 export const exportGeneratedCV = (id, format = 'markdown') =>
   api.get(`/generated-cvs/${id}/export`, {
@@ -78,7 +79,7 @@ export const exportGeneratedCV = (id, format = 'markdown') =>
     responseType: 'blob',
   });
 
-export const streamChatCVGeneration = async (messages, outputFormat = 'rich_text', onEvent) => {
+export const streamChatCVGeneration = async (messages, outputFormat = 'rich_text', onEvent, templateId = null) => {
   const token = localStorage.getItem('token');
   const headers = {
     'Content-Type': 'application/json',
@@ -86,36 +87,36 @@ export const streamChatCVGeneration = async (messages, outputFormat = 'rich_text
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  
+
   const response = await fetch(`${API_BASE}/generated-cvs/chat/stream`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ messages, output_format: outputFormat }),
+    body: JSON.stringify({ messages, output_format: outputFormat, ...(templateId && { template_id: templateId }) }),
   });
-  
+
   if (!response.ok) {
     throw new Error(`HTTP Error: ${response.status}`);
   }
-  
+
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    
+
     buffer += decoder.decode(value, { stream: true });
-    
+
     let boundary = buffer.indexOf('\n\n');
     while (boundary !== -1) {
       const chunk = buffer.slice(0, boundary);
       buffer = buffer.slice(boundary + 2);
-      
+
       const lines = chunk.split('\n');
       let eventText = '';
       let dataText = '';
-      
+
       for (const line of lines) {
         if (line.startsWith('event:')) {
           eventText = line.substring(6).trim();
@@ -123,17 +124,88 @@ export const streamChatCVGeneration = async (messages, outputFormat = 'rich_text
           dataText = line.substring(5).trim();
         }
       }
-      
+
       if (eventText && dataText) {
         let parsedData = dataText;
         try {
-           parsedData = JSON.parse(dataText);
+          parsedData = JSON.parse(dataText);
         } catch (e) {
-           // fallback to raw text
+          // fallback to raw text
         }
         onEvent({ event: eventText, data: parsedData });
       }
-      
+
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
+};
+
+/**
+ * Stream CV analysis via SSE — sends CV file + JD text as multipart form,
+ * receives analysis pipeline progress and results.
+ */
+export const streamChatAnalysis = async (cvFile, jdText, jdFile, onEvent) => {
+  const token = localStorage.getItem('token');
+  const formData = new FormData();
+  formData.append('cv_file', cvFile);
+  if (jdFile) {
+    formData.append('jd_file', jdFile);
+  }
+  formData.append('jd_text', jdText || '');
+
+  const headers = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE}/analysis/chat-analyze/stream`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(errText || `HTTP Error: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary !== -1) {
+      const chunk = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+
+      const lines = chunk.split('\n');
+      let eventText = '';
+      let dataText = '';
+
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          eventText = line.substring(6).trim();
+        } else if (line.startsWith('data:')) {
+          dataText = line.substring(5).trim();
+        }
+      }
+
+      if (eventText && dataText) {
+        let parsedData = dataText;
+        try {
+          parsedData = JSON.parse(dataText);
+        } catch (e) {
+          // fallback to raw text
+        }
+        onEvent({ event: eventText, data: parsedData });
+      }
+
       boundary = buffer.indexOf('\n\n');
     }
   }

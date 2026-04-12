@@ -105,6 +105,7 @@ async def chat_cv_generation(
             user_id=user_id,
             messages=messages,
             output_format=req.output_format,
+            template_id=req.template_id,
         )
         if cv_id:
             await session.commit()
@@ -135,6 +136,7 @@ async def chat_cv_generation_stream(
             user_id=user_id,
             messages=messages,
             output_format=req.output_format,
+            template_id=req.template_id,
         )
         return StreamingResponse(
             stream_generator,

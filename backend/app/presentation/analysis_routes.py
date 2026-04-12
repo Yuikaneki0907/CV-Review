@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.application.use_cases.analyze_cv import AnalyzeCVUseCase
 from app.application.dto.responses import (
     AnalysisResponse,
     AnalysisListResponse,
@@ -25,6 +26,7 @@ from app.domain.entities.cv_file import CVFile
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.analysis_repository import AnalysisRepository
 from app.infrastructure.database.repositories.cv_file_repository import CVFileRepository
+from app.infrastructure.ai import ai_service_factory
 from app.infrastructure.storage.minio_storage import MinioFileStorage
 from app.infrastructure.file_parsers.parsers import get_parser
 from app.infrastructure.celery.tasks import run_analysis_task
@@ -101,6 +103,7 @@ async def create_analysis(
     logger.info("CV uploaded to MinIO: key=%s, size=%d bytes", storage_key, file_size)
 
     # ── Parse CV (write temp file for parser) ────────────────────
+    tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
             tmp.write(file_bytes)
@@ -148,6 +151,7 @@ async def create_analysis(
         logger.info("JD uploaded to MinIO: key=%s, size=%d bytes", jd_storage_key, len(jd_bytes))
 
         # Parse JD file
+        jd_tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix=jd_ext, delete=False) as jtmp:
                 jtmp.write(jd_bytes)
@@ -256,6 +260,251 @@ async def delete_analysis(
         raise HTTPException(status_code=404, detail="Không tìm thấy kết quả phân tích hoặc đã bị xóa")
     await session.commit()
     return None
+
+
+@router.post("/chat-analyze/stream")
+async def chat_analyze_stream(
+    cv_file: UploadFile = File(...),
+    jd_text: str = Form(""),
+    jd_file: UploadFile | None = File(None),
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Run CV analysis pipeline inline with SSE streaming (for chatbot integration)."""
+
+    settings = get_settings()
+
+    # ── Validate inputs ──────────────────────────────────────────
+    if not jd_text.strip() and (jd_file is None or not jd_file.filename):
+        raise HTTPException(status_code=400, detail="Cần nhập Job Description (dán text hoặc upload file)")
+
+    if not cv_file.filename:
+        raise HTTPException(status_code=400, detail="File name is required")
+
+    try:
+        cv_parser = get_parser(cv_file.filename)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file PDF hoặc DOCX")
+
+    # ── Read & parse CV ──────────────────────────────────────────
+    file_bytes = await cv_file.read()
+    file_size = len(file_bytes)
+    ext = os.path.splitext(cv_file.filename)[1]
+    file_id = uuid4()
+
+    storage = _get_file_storage()
+    storage_key = f"{user_id}/{file_id}{ext}"
+    content_type = cv_file.content_type or "application/octet-stream"
+
+    storage.upload(
+        bucket=settings.MINIO_BUCKET_NAME,
+        key=storage_key,
+        data=BytesIO(file_bytes),
+        length=file_size,
+        content_type=content_type,
+    )
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        cv_text = await cv_parser.parse(tmp_path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Không đọc được file CV: {e}")
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    # ── Handle JD ────────────────────────────────────────────────
+    jd_final_text = jd_text.strip()
+    if jd_file is not None and jd_file.filename:
+        try:
+            jd_parser = get_parser(jd_file.filename)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="JD file: chỉ hỗ trợ PDF hoặc DOCX")
+
+        jd_bytes = await jd_file.read()
+        jd_ext = os.path.splitext(jd_file.filename)[1]
+        jd_tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=jd_ext, delete=False) as jtmp:
+                jtmp.write(jd_bytes)
+                jd_tmp_path = jtmp.name
+            jd_final_text = await jd_parser.parse(jd_tmp_path)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Không đọc được file JD: {e}")
+        finally:
+            if os.path.exists(jd_tmp_path):
+                os.remove(jd_tmp_path)
+
+    # ── Create analysis record ───────────────────────────────────
+    analysis_repo = AnalysisRepository(session)
+    cv_file_repo = CVFileRepository(session)
+
+    analysis = AnalysisResult(
+        user_id=user_id,
+        cv_filename=cv_file.filename,
+        cv_text=cv_text,
+        jd_text=jd_final_text,
+    )
+    await analysis_repo.create(analysis)
+
+    version = await cv_file_repo.get_next_version(user_id, cv_file.filename)
+    cv_record = CVFile(
+        id=file_id,
+        user_id=user_id,
+        analysis_id=analysis.id,
+        original_filename=cv_file.filename,
+        storage_key=storage_key,
+        content_type=content_type,
+        file_size=file_size,
+        version=version,
+    )
+    await cv_file_repo.create(cv_record)
+    await session.commit()
+
+    analysis_id = analysis.id
+
+    async def _analysis_stream():
+        def _sse(event: str, data) -> str:
+            return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        yield _sse("analysis_start", {"analysis_id": str(analysis_id), "cv_filename": cv_file.filename})
+
+        import time as _time
+
+        try:
+            ai_service = ai_service_factory()
+            use_case = AnalyzeCVUseCase(analysis_repo, ai_service)
+            analysis.mark_processing()
+            await analysis_repo.update(analysis)
+
+            # Step 1: Extract
+            yield _sse("analysis_step", {"step": "extract", "status": "running", "label": "Trích xuất thông tin CV & JD"})
+            step_start = _time.perf_counter()
+            cv_extracted = await ai_service.extract_cv_info(cv_text)
+            jd_extracted = await ai_service.extract_jd_info(jd_final_text)
+            analysis.cv_extracted = cv_extracted
+            analysis.jd_extracted = jd_extracted
+            await analysis_repo.update(analysis)
+            step_ms = (_time.perf_counter() - step_start) * 1000
+            yield _sse("analysis_step", {"step": "extract", "status": "done", "duration_ms": round(step_ms)})
+
+            # Step 2: Score
+            yield _sse("analysis_step", {"step": "score", "status": "running", "label": "Chấm điểm & so khớp kỹ năng"})
+            step_start = _time.perf_counter()
+            analysis.score, analysis.skill_analysis = await use_case._match_and_score(cv_extracted, jd_extracted)
+            await analysis_repo.update(analysis)
+            step_ms = (_time.perf_counter() - step_start) * 1000
+            yield _sse("analysis_step", {"step": "score", "status": "done", "duration_ms": round(step_ms)})
+
+            # Emit score result
+            yield _sse("analysis_result", {
+                "type": "scores",
+                "data": {
+                    "overall": analysis.score.overall,
+                    "skills_score": analysis.score.skills_score,
+                    "experience_score": analysis.score.experience_score,
+                    "tools_score": analysis.score.tools_score,
+                }
+            })
+
+            # Emit skills result
+            yield _sse("analysis_result", {
+                "type": "skills",
+                "data": {
+                    "matched": [{"name": s.name, "category": s.category} for s in analysis.skill_analysis.matched_skills],
+                    "missing": [{"name": s.name, "category": s.category} for s in analysis.skill_analysis.missing_skills],
+                    "extra": [{"name": s.name, "category": s.category} for s in analysis.skill_analysis.extra_skills],
+                }
+            })
+
+            # Step 3: Rewrite
+            yield _sse("analysis_step", {"step": "rewrite", "status": "running", "label": "Viết lại CV tối ưu"})
+            step_start = _time.perf_counter()
+            analysis.rewritten_cv = await ai_service.rewrite_cv(cv_text, jd_final_text, cv_extracted, jd_extracted)
+            await analysis_repo.update(analysis)
+            step_ms = (_time.perf_counter() - step_start) * 1000
+            yield _sse("analysis_step", {"step": "rewrite", "status": "done", "duration_ms": round(step_ms)})
+            yield _sse("analysis_result", {"type": "rewritten_cv", "data": analysis.rewritten_cv})
+
+            # Step 4: Truth check
+            yield _sse("analysis_step", {"step": "truthcheck", "status": "running", "label": "Kiểm tra hallucination"})
+            step_start = _time.perf_counter()
+            analysis.hallucination_report = await use_case._check_truth(cv_text, analysis.rewritten_cv, cv_extracted)
+            await analysis_repo.update(analysis)
+            step_ms = (_time.perf_counter() - step_start) * 1000
+            yield _sse("analysis_step", {"step": "truthcheck", "status": "done", "duration_ms": round(step_ms)})
+            yield _sse("analysis_result", {
+                "type": "hallucination",
+                "data": {
+                    "is_safe": analysis.hallucination_report.is_safe,
+                    "warnings": [
+                        {
+                            "section": w.section,
+                            "original_text": w.original_text,
+                            "rewritten_text": w.rewritten_text,
+                            "issue_type": w.issue_type,
+                            "explanation": w.explanation,
+                            "level": w.level.value,
+                        }
+                        for w in analysis.hallucination_report.warnings
+                    ],
+                }
+            })
+
+            # Step 5: Insights (parallel)
+            yield _sse("analysis_step", {"step": "insights", "status": "running", "label": "Phân tích nâng cao (JD, phỏng vấn, lương)"})
+            step_start = _time.perf_counter()
+            jd_eval_res, qa_res, salary_res = await asyncio.gather(
+                ai_service.evaluate_jd(jd_final_text, jd_extracted),
+                ai_service.suggest_interview_questions(cv_extracted, jd_extracted),
+                ai_service.negotiate_salary(cv_extracted, jd_extracted),
+            )
+            analysis.jd_evaluation = jd_eval_res
+            analysis.interview_questions = qa_res
+            analysis.salary_negotiation = salary_res
+            await analysis_repo.update(analysis)
+            step_ms = (_time.perf_counter() - step_start) * 1000
+            yield _sse("analysis_step", {"step": "insights", "status": "done", "duration_ms": round(step_ms)})
+            yield _sse("analysis_result", {
+                "type": "insights",
+                "data": {
+                    "jd_evaluation": jd_eval_res,
+                    "interview_questions": qa_res,
+                    "salary_negotiation": salary_res,
+                }
+            })
+
+            # Step 6: Diff
+            yield _sse("analysis_step", {"step": "diff", "status": "running", "label": "Tạo visual diff"})
+            step_start = _time.perf_counter()
+            analysis.diff_result = use_case._compute_diff(cv_text, analysis.rewritten_cv)
+            await analysis_repo.update(analysis)
+            step_ms = (_time.perf_counter() - step_start) * 1000
+            yield _sse("analysis_step", {"step": "diff", "status": "done", "duration_ms": round(step_ms)})
+
+            analysis.mark_completed()
+            await analysis_repo.update(analysis)
+
+            yield _sse("analysis_done", {"analysis_id": str(analysis_id)})
+
+        except Exception as e:
+            logger.error("Chat analysis FAILED: %s", str(e), exc_info=True)
+            analysis.mark_failed()
+            await analysis_repo.update(analysis)
+            yield _sse("analysis_error", {"error": str(e)})
+
+    return StreamingResponse(
+        _analysis_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{analysis_id}/stream")

@@ -12,18 +12,29 @@ logger = get_logger("app.infrastructure.ai.openai")
 
 
 class OpenAIService(IAIService):
-    """Concrete AI service using OpenAI API (gpt-4o-mini)."""
+    """Concrete AI service using OpenAI API or OpenAI-compatible OAuth API."""
 
-    def __init__(self):
+    def __init__(self, is_oauth: bool = False):
         settings = get_settings()
-        client_kwargs = {"api_key": settings.OPENAI_API_KEY}
-        if settings.OPENAI_API_BASE:
-            client_kwargs["base_url"] = settings.OPENAI_API_BASE
+        
+        if is_oauth:
+            api_key = settings.OPENAI_API_KEY_OAUTH
+            base_url = settings.OPENAI_API_BASE_OAUTH
+            model = settings.OPENAI_MODEL_OAUTH
+            logger.info("OpenAIService (OAuth) initialized with model %s and base %s", model, base_url)
+        else:
+            api_key = settings.OPENAI_API_KEY
+            base_url = settings.OPENAI_API_BASE
+            model = settings.OPENAI_MODEL
+            logger.info("OpenAIService (Standard) initialized with model %s", model)
+
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
             
         self._client = OpenAI(**client_kwargs)
-        self._model = settings.OPENAI_MODEL
+        self._model = model
         self._embed_model = settings.OPENAI_EMBED_MODEL
-        logger.info("OpenAIService initialized (model=%s, embed=%s)", self._model, self._embed_model)
 
     # ── helpers ───────────────────────────────────────────────────
     def _chat(self, prompt: str, *, json_mode: bool = False) -> str:

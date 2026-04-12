@@ -3,10 +3,10 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { listGeneratedCVs } from '../api';
 import { listWorkspaceDrafts, WORKSPACE_DRAFT_EVENT } from '../utils/workspaceDraft';
-import { 
-  HomeIcon, 
-  SparklesIcon, 
-  ClockIcon, 
+import {
+  HomeIcon,
+  SparklesIcon,
+  ClockIcon,
   ArrowRightOnRectangleIcon,
   UserCircleIcon,
   ChatBubbleLeftRightIcon,
@@ -14,9 +14,9 @@ import {
   MagnifyingGlassIcon,
   CubeTransparentIcon
 } from '@heroicons/react/24/outline';
-import { 
-  SparklesIcon as SparklesSolid, 
-  ClockIcon as ClockSolid, 
+import {
+  SparklesIcon as SparklesSolid,
+  ClockIcon as ClockSolid,
   ChatBubbleLeftRightIcon as ChatSolid,
   CubeTransparentIcon as CubeSolid
 } from '@heroicons/react/24/solid';
@@ -59,7 +59,7 @@ export default function SideNav() {
     return location.pathname === path ? <SolidIcon className="sidenav-icon active-icon" /> : <OutlineIcon className="sidenav-icon" />;
   };
 
-  const filteredHistory = history.filter(item => 
+  const filteredHistory = history.filter(item =>
     (item.job_title || 'CV Chưa Đặt Tên').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -73,7 +73,7 @@ export default function SideNav() {
               <SparklesIcon className="sidenav-logo-icon" />
             </Link>
           </div>
-          
+
           <Link to="/generate-cv" className={`sidenav-item-wrapped ${location.pathname === '/generate-cv' ? 'active' : ''}`} title="Tạo CV mới">
             <div className="sidenav-item">
               <HomeIcon className="sidenav-icon" />
@@ -81,10 +81,10 @@ export default function SideNav() {
             <span className="sidenav-text">New</span>
           </Link>
 
-          <div 
+          <div
             role="button"
             tabIndex={0}
-            className={`sidenav-item-wrapped ${isSidebarOpen ? 'active' : ''}`} 
+            className={`sidenav-item-wrapped ${isSidebarOpen ? 'active' : ''}`}
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             title="Lịch sử Chat"
           >
@@ -93,16 +93,8 @@ export default function SideNav() {
             </div>
             <span className="sidenav-text">Claw</span>
           </div>
-          
-          <div className="sidenav-divider" />
-          
-          <Link to="/upload" className={`sidenav-item-wrapped ${location.pathname === '/upload' ? 'active' : ''}`} title="Phân Tích Bằng Tay">
-            <div className="sidenav-item">
-              {getIcon('/upload', ChatBubbleLeftRightIcon, ChatSolid)}
-            </div>
-            <span className="sidenav-text">Upload</span>
-          </Link>
-          
+
+
           <Link to="/history" className={`sidenav-item-wrapped ${location.pathname === '/history' ? 'active' : ''}`} title="Lịch sử Dịch">
             <div className="sidenav-item">
               {getIcon('/history', ClockIcon, ClockSolid)}
@@ -133,14 +125,14 @@ export default function SideNav() {
             <Bars3Icon className="sidenav-icon" />
           </button>
         </div>
-        
+
         <div className="task-list-search">
           <div className="task-list-search-wrap">
             <MagnifyingGlassIcon className="task-list-search-icon" />
-            <input 
-              type="text" 
-              className="task-list-search-input" 
-              placeholder="Search Chats" 
+            <input
+              type="text"
+              className="task-list-search-input"
+              placeholder="Search Chats"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -176,9 +168,9 @@ export default function SideNav() {
           {filteredHistory.map(item => {
             const isActive = location.pathname === `/workspace/${item.id}`;
             return (
-              <Link 
-                key={item.id} 
-                to={`/workspace/${item.id}`} 
+              <Link
+                key={item.id}
+                to={`/workspace/${item.id}`}
                 className={`task-item ${isActive ? 'active' : ''}`}
                 title={item.job_title || 'CV Chưa Đặt Tên'}
               >
