@@ -10,42 +10,15 @@ const turndown = new TurndownService({
   codeBlockStyle: 'fenced',
 });
 
-const escapeHtml = (value) =>
-  value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-
-const plainTextToHtml = (text) => {
-  const source = (text || '').trim();
-  if (!source) return '<p></p>';
-
-  const paragraphs = source
-    .split(/\n{2,}/)
-    .map((block) => `<p>${escapeHtml(block).replaceAll('\n', '<br/>')}</p>`);
-  return paragraphs.join('');
-};
-
 const markdownToHtml = (markdown) => {
   const parsed = marked.parse(markdown || '', { async: false, gfm: true });
   return typeof parsed === 'string' && parsed.trim() ? parsed : '<p></p>';
 };
 
-const valueToEditorHtml = (value, format) => {
-  if (format === 'markdown' || format === 'docx') {
-    return markdownToHtml(value);
-  }
-  return plainTextToHtml(value);
-};
+const valueToEditorHtml = (value) => markdownToHtml(value);
 
-const editorToValue = (editor, format) => {
-  if (format === 'markdown' || format === 'docx') {
-    return turndown.turndown(editor.getHTML()).replace(/\n{3,}/g, '\n\n').trim();
-  }
-  return editor.state.doc.textBetween(0, editor.state.doc.content.size, '\n\n').trim();
-};
+const editorToValue = (editor) =>
+  turndown.turndown(editor.getHTML()).replace(/\n{3,}/g, '\n\n').trim();
 
 const IconUndo = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>;
 const IconRedo = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>;
@@ -71,11 +44,11 @@ function ToolbarButton({ active = false, disabled = false, onClick, title, child
 
 export default function CvWysiwygEditor({
   value = '',
-  format = 'rich_text',
+  format = 'markdown',
   onChange,
   readOnly = false,
 }) {
-  const initialContent = useMemo(() => valueToEditorHtml(value, format), [value, format]);
+  const initialContent = useMemo(() => valueToEditorHtml(value), [value]);
 
   const editor = useEditor({
     extensions: [
@@ -89,18 +62,18 @@ export default function CvWysiwygEditor({
     editable: !readOnly,
     onUpdate: ({ editor: instance }) => {
       if (!onChange) return;
-      onChange(editorToValue(instance, format));
+      onChange(editorToValue(instance));
     },
   });
 
   useEffect(() => {
     if (!editor) return;
-    const nextContent = valueToEditorHtml(value, format);
+    const nextContent = valueToEditorHtml(value);
     if (editor.isFocused) return;
     if (editor.getHTML() !== nextContent) {
       editor.commands.setContent(nextContent, false);
     }
-  }, [editor, value, format]);
+  }, [editor, value]);
 
   useEffect(() => {
     if (!editor) return;

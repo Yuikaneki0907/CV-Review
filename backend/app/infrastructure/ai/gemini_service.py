@@ -185,13 +185,67 @@ Return ONLY valid JSON."""
             return [] if expect_list else {}
 
     async def evaluate_jd(self, jd_text: str, jd_extracted: Dict) -> Dict:
-        return {}
+        prompt = f"""
+        Bạn là một chuyên gia tuyển dụng. Hãy đánh giá độ khó và yêu cầu của mô tả công việc (Job Description) sau đây:
+
+        JD Text:
+        ---
+        {jd_text}
+        ---
+
+        Dữ liệu đã trích xuất: {json.dumps(jd_extracted, ensure_ascii=False)}
+
+        Hãy trả về kết quả dưới định dạng JSON bao gồm:
+        {{
+            "level": "Fresher" | "Junior" | "Middle" | "Senior" | "Manager",
+            "years_of_experience": "Ghi rõ số năm kinh nghiệm yêu cầu hoặc 'Không yêu cầu'",
+            "difficulty": "Easy" | "Medium" | "Hard",
+            "missing_info": ["Danh sách các thông tin quan trọng bị thiếu trong JD, ví dụ: mức lương, địa điểm..."],
+            "summary": "Tóm tắt ngắn gọn yêu cầu chính yếu của JD này"
+        }}
+        Chỉ trả về JSON.
+        """
+        result = await self._generate_json(prompt)
+        return result if isinstance(result, dict) else {}
 
     async def suggest_interview_questions(self, cv_extracted: Dict, jd_extracted: Dict) -> List[Dict]:
-        return []
+        prompt = f"""
+        Bạn là một chuyên gia phỏng vấn nhân sự. Dựa trên thông tin CV của ứng viên và JD của công ty, hãy gợi ý bộ câu hỏi phỏng vấn phù hợp nhất.
+        Đặc biệt chú trọng đến những kỹ năng ứng viên còn thiếu so với JD, hoặc những kinh nghiệm ấn tượng trong CV.
+
+        CV Extracted: {json.dumps(cv_extracted, ensure_ascii=False)}
+        JD Extracted: {json.dumps(jd_extracted, ensure_ascii=False)}
+
+        Hãy trả về MỘT MẢNG JSON, mỗi phần tử có cấu trúc như sau:
+        [{{
+            "question": "Câu hỏi phỏng vấn",
+            "purpose": "Mục đích của câu hỏi này (kiểm tra kỹ năng gì?)",
+            "suggested_answer_strategy": "Gợi ý chiến lược trả lời dành cho ứng viên",
+            "category": "Technical" | "Soft Skill" | "Behavioral" | "Experience"
+        }}]
+        Chỉ trả về danh sách JSON. Đưa ra 3-5 câu hỏi trọng tâm nhất.
+        """
+        result = await self._generate_json(prompt, expect_list=True)
+        return result if isinstance(result, list) else []
 
     async def negotiate_salary(self, cv_extracted: Dict, jd_extracted: Dict) -> Dict:
-        return {}
+        prompt = f"""
+        Bạn là chuyên gia tư vấn tuyển dụng và đàm phán lương. Hãy đánh giá khả năng deal lương của ứng viên dựa trên CV và JD.
+
+        CV Extracted: {json.dumps(cv_extracted, ensure_ascii=False)}
+        JD Extracted: {json.dumps(jd_extracted, ensure_ascii=False)}
+
+        Hãy trả về kết quả dưới định dạng JSON bao gồm:
+        {{
+            "expected_salary_range": "Dự đoán khoảng lương hoặc ghi 'Cần thêm thông tin thị trường'",
+            "negotiation_strategy": "Chiến lược cụ thể để ứng viên có thể deal được mức lương tốt nhất (VD: nhấn mạnh vào kỹ năng A)",
+            "cv_strengths": ["Các điểm mạnh trong CV làm lợi thế đàm phán"],
+            "cv_weaknesses": ["Các điểm yếu ứng viên cần chuẩn bị để nhà tuyển dụng không ép lương"]
+        }}
+        Chỉ trả về định dạng JSON.
+        """
+        result = await self._generate_json(prompt)
+        return result if isinstance(result, dict) else {}
 
     async def generate_cv_template(
         self,
@@ -201,7 +255,6 @@ Return ONLY valid JSON."""
         output_format: str = "markdown",
     ) -> str:
         format_guide = {
-            "rich_text": "trình bày theo kiểu văn bản dễ đọc, không dùng cú pháp markdown như #, **, -.",
             "markdown": "tuân thủ markdown chuẩn, có heading và bullet list rõ ràng.",
             "docx": "tuân thủ markdown sạch để có thể export DOCX chính xác (heading/bullet rõ ràng).",
         }.get(output_format, "tuân thủ markdown chuẩn.")
@@ -263,3 +316,43 @@ Return ONLY valid JSON."""
         for chunk in response_stream:
             if chunk.text:
                 yield chunk.text
+
+    async def plan_cv_edits(
+        self,
+        messages: List[Dict[str, str]],
+        current_cv: str,
+        output_format: str = "markdown",
+    ) -> Dict:
+        prompt = f"""
+        Bạn là trợ lý chỉnh sửa CV theo yêu cầu hội thoại.
+        Nhiệm vụ: KHÔNG viết lại toàn bộ CV. Chỉ trả về các thao tác chỉnh sửa cục bộ nhỏ nhất cần thiết.
+
+        Conversation:
+        {json.dumps(messages, ensure_ascii=False, indent=2)}
+
+        Current CV ({output_format}, lưu dưới markdown):
+        ---
+        {current_cv}
+        ---
+
+        Chỉ được dùng các loại operation sau:
+        1. replace_section_body: {{"type":"replace_section_body","heading":"SUMMARY","content":"...nội dung mới của section, KHÔNG lặp lại heading"}}
+        2. append_to_section: {{"type":"append_to_section","heading":"EXPERIENCE","content":"- bullet mới\\n- bullet mới 2"}}
+        3. replace_text: {{"type":"replace_text","target":"đoạn cũ","content":"đoạn mới"}}
+        4. insert_after_text: {{"type":"insert_after_text","target":"đoạn mốc","content":"\\n- thêm ngay sau"}}
+        5. remove_text: {{"type":"remove_text","target":"đoạn cần xoá"}}
+
+        Quy tắc:
+        - Không phát minh dữ kiện mới ngoài hội thoại và CV hiện tại.
+        - Nếu yêu cầu chưa đủ rõ hoặc thiếu dữ kiện, KHÔNG tạo operation. Hãy hỏi lại ở assistant_reply.
+        - Không trả về full CV.
+        - Ưu tiên chỉnh rất cục bộ, giữ nguyên phần không liên quan.
+
+        Trả về JSON duy nhất đúng schema:
+        {{
+          "assistant_reply": "Tin nhắn ngắn gọn cho user bằng tiếng Việt",
+          "operations": [{{...}}]
+        }}
+        """
+        result = await self._generate_json(prompt)
+        return result if isinstance(result, dict) else {"assistant_reply": "", "operations": []}

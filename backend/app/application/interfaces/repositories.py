@@ -113,5 +113,17 @@ class IGeneratedCVRepository(ABC):
         ...
 
     @abstractmethod
+    async def get_next_version(self, user_id: UUID, conversation_id: UUID) -> int:
+        ...
+
+    @abstractmethod
+    async def list_versions(
+        self,
+        user_id: UUID,
+        conversation_id: UUID,
+    ) -> List["GeneratedCV"]:
+        ...
+
+    @abstractmethod
     async def soft_delete(self, cv_id: UUID, user_id: UUID) -> bool:
         ...

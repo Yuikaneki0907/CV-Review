@@ -6,8 +6,8 @@ import redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.infrastructure.celery import celery_app
+from app.infrastructure.ai import ai_service_factory
 from app.infrastructure.database.repositories.analysis_repository import AnalysisRepository
-from app.infrastructure.ai.openai_service import OpenAIService
 from app.application.use_cases.analyze_cv import AnalyzeCVUseCase
 from app.config import get_settings
 from app.logger import get_logger
@@ -49,7 +49,7 @@ def run_analysis_task(self, analysis_id: str):
         try:
             async with session_factory() as session:
                 analysis_repo = AnalysisRepository(session)
-                ai_service = OpenAIService()
+                ai_service = ai_service_factory()
                 use_case = AnalyzeCVUseCase(analysis_repo, ai_service, redis_client)
 
                 try:

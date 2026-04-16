@@ -83,6 +83,8 @@ class AnalysisListResponse(BaseModel):
 
 class GeneratedCVListResponse(BaseModel):
     id: UUID
+    conversation_id: UUID
+    version: int
     status: str
     target_jd_text: Optional[str] = None
     job_title: Optional[str] = None
@@ -94,6 +96,9 @@ class GeneratedCVListResponse(BaseModel):
 
 class GeneratedCVResponse(BaseModel):
     id: UUID
+    conversation_id: UUID
+    version: int
+    parent_version_id: Optional[UUID] = None
     status: str
     target_jd_text: Optional[str] = None
     base_profile_data: Optional[Dict] = None
@@ -103,7 +108,17 @@ class GeneratedCVResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class GeneratedCVVersionResponse(BaseModel):
+    id: UUID
+    conversation_id: UUID
+    version: int
+    parent_version_id: Optional[UUID] = None
+    status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class ChatContextResponse(BaseModel):
     reply: str
     generated_cv_id: Optional[UUID] = None
-

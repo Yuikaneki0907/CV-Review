@@ -9,6 +9,9 @@ class GeneratedCV:
 
     id: UUID = field(default_factory=uuid4)
     user_id: UUID = field(default_factory=uuid4)
+    conversation_id: UUID = field(default_factory=uuid4)
+    version: int = 1
+    parent_version_id: Optional[UUID] = None
     
     target_jd_text: Optional[str] = None
     base_profile_data: Optional[Dict] = None

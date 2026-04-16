@@ -1,4 +1,7 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dto.requests import RegisterRequest, LoginRequest, UserUpdateRequest
@@ -47,22 +50,16 @@ async def login(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(
-    user_id: str = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session)
 ):
-    from uuid import UUID
     user_repo = UserRepository(session)
-    user = await user_repo.get_by_id(UUID(user_id))
+    user = await user_repo.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # We will need to query the UserModel if phone_number is not in the entity
-    # Actually, we can fetch from UserModel to get phone_number, or update domain User
-    # But since UserResponse has phone_number now, let's fetch model or add it to domain.
-    # To keep it simple, we will fetch the raw model using session.
-    from sqlalchemy import select
+
     from app.infrastructure.database.models import UserModel
-    result = await session.execute(select(UserModel).where(UserModel.id == UUID(user_id)))
+    result = await session.execute(select(UserModel).where(UserModel.id == user_id))
     db_user = result.scalar_one_or_none()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -77,22 +74,20 @@ async def get_current_user_profile(
 @router.put("/me", response_model=UserResponse)
 async def update_current_user_profile(
     data: UserUpdateRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session)
 ):
-    from uuid import UUID
     user_repo = UserRepository(session)
     updated_user = await user_repo.update(
-        user_id=UUID(user_id),
+        user_id=user_id,
         full_name=data.full_name,
         phone_number=data.phone_number
     )
     if not updated_user:
         raise HTTPException(status_code=404, detail="User not found")
-        
-    from sqlalchemy import select
+
     from app.infrastructure.database.models import UserModel
-    result = await session.execute(select(UserModel).where(UserModel.id == UUID(user_id)))
+    result = await session.execute(select(UserModel).where(UserModel.id == user_id))
     db_user = result.scalar_one_or_none()
     
     return UserResponse(

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, String, Text, Float, DateTime, ForeignKey
+from sqlalchemy import Column, String, Text, Float, DateTime, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -94,6 +94,9 @@ class GeneratedCVModel(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=True), nullable=False, index=True, default=uuid.uuid4)
+    version = Column(Integer, nullable=False, default=1)
+    parent_version_id = Column(UUID(as_uuid=True), ForeignKey("generated_cvs.id"), nullable=True)
 
     target_jd_text = Column(Text, nullable=True)
     base_profile_data = Column(JSONB, nullable=True)
@@ -105,4 +108,3 @@ class GeneratedCVModel(Base):
     deleted_at = Column(DateTime, nullable=True)
 
     user = relationship("UserModel")
-

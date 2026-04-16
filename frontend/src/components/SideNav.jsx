@@ -177,6 +177,7 @@ export default function SideNav() {
                 <ClockIcon className="task-item-icon" />
                 <span className="task-title">
                   {item.job_title || 'Mẫu CV HTML Kỹ Sư...'}
+                  {item.version ? ` · v${item.version}` : ''}
                 </span>
               </Link>
             );

@@ -16,20 +16,14 @@ class ChatCVUseCase:
         self.ai = ai_service
 
     def _build_format_instruction(self, output_format: str) -> str:
-        if output_format == "markdown":
-            return (
-                "Đầu ra CV bắt buộc ở định dạng MARKDOWN. "
-                "Dùng heading, bullet list, bố cục rõ ràng."
-            )
         if output_format == "docx":
             return (
                 "Đầu ra CV phải là MARKDOWN sạch để hệ thống export DOCX. "
                 "Dùng heading rõ ràng, bullet chuẩn, không chèn ký tự lạ."
             )
-        # rich_text
         return (
-            "Đầu ra CV là RICH TEXT thuần văn bản dễ đọc, KHÔNG dùng cú pháp markdown (#, **, -, ```). "
-            "Có thể dùng tiêu đề dòng in hoa và xuống dòng hợp lý."
+            "Đầu ra CV bắt buộc ở định dạng MARKDOWN. "
+            "Dùng heading, bullet list, bố cục rõ ràng."
         )
 
     def _build_template_instruction(self, template_id: Optional[str]) -> str:
@@ -45,19 +39,57 @@ class ChatCVUseCase:
             f"--- TEMPLATE ---\n{tpl['skeleton']}\n--- END TEMPLATE ---\n"
         )
 
+    async def _build_generated_cv(
+        self,
+        *,
+        user_id: UUID,
+        messages: List[Dict[str, str]],
+        reply_text: str,
+        cv_content: str,
+        output_format: str,
+        current_cv: Optional[GeneratedCV] = None,
+    ) -> GeneratedCV:
+        next_version = (
+            await self.repo.get_next_version(user_id, current_cv.conversation_id)
+            if current_cv
+            else 1
+        )
+        clean_reply = reply_text.strip() or "*(Đã tạo CV thành công)*"
+        generated_payload = {
+            "format": output_format,
+            "content": cv_content,
+            "markdown": cv_content,
+            "chat_history": messages + [{"role": "assistant", "content": clean_reply}],
+        }
+        entity_kwargs = {
+            "user_id": user_id,
+            "version": next_version,
+            "target_jd_text": current_cv.target_jd_text if current_cv else "Được cung cấp qua chat",
+            "base_profile_data": current_cv.base_profile_data if current_cv else {"level": "Unknown", "job_title": "CV Từ Chatbot"},
+            "generated_content": generated_payload,
+            "status": "completed",
+        }
+        if current_cv:
+            entity_kwargs["conversation_id"] = current_cv.conversation_id
+            entity_kwargs["parent_version_id"] = current_cv.id
+
+        cv_entity = GeneratedCV(**entity_kwargs)
+        return cv_entity
+
     async def execute(
         self,
         user_id: UUID,
         messages: List[Dict[str, str]],
-        output_format: str = "rich_text",
+        output_format: str = "markdown",
         template_id: Optional[str] = None,
+        current_cv: Optional[GeneratedCV] = None,
     ) -> Tuple[str, Optional[UUID]]:
         """
         Process the chat message. If AI outputs <FINAL_CV>, extract it and save.
         Returns (reply_text, generated_cv_id).
         """
-        if output_format not in {"rich_text", "markdown", "docx"}:
-            output_format = "rich_text"
+        if output_format not in {"markdown", "docx"}:
+            output_format = "markdown"
 
         system_prompt = {
             "role": "system",
@@ -107,25 +139,14 @@ class ChatCVUseCase:
             # Clean the tag from the reply so the user doesn't see it raw if we just render it or save it to history
             clean_reply = re.sub(r"<FINAL_CV>.*?</FINAL_CV>", "\n\n*(Đã tạo CV thành công)*", ai_reply, flags=re.DOTALL | re.IGNORECASE)
 
-            generated_payload = {
-                "format": output_format,
-                "content": cv_content,
-                "chat_history": messages + [{"role": "assistant", "content": clean_reply.strip()}],
-            }
-            if output_format in {"markdown", "docx"}:
-                generated_payload["markdown"] = cv_content
-            else:
-                generated_payload["text"] = cv_content
-
-            # Save it
-            cv_entity = GeneratedCV(
+            cv_entity = await self._build_generated_cv(
                 user_id=user_id,
-                target_jd_text="Được cung cấp qua chat",
-                base_profile_data={"level": "Unknown", "job_title": "CV Từ Chatbot"},
-                generated_content=generated_payload,
-                status="completed"
+                messages=messages,
+                reply_text=clean_reply.strip(),
+                cv_content=cv_content,
+                output_format=output_format,
+                current_cv=current_cv,
             )
-            
             await self.repo.create(cv_entity)
             cv_id = cv_entity.id
             
@@ -137,12 +158,13 @@ class ChatCVUseCase:
         self,
         user_id: UUID,
         messages: List[Dict[str, str]],
-        output_format: str = "rich_text",
+        output_format: str = "markdown",
         template_id: Optional[str] = None,
+        current_cv: Optional[GeneratedCV] = None,
     ):
         import json
-        if output_format not in {"rich_text", "markdown", "docx"}:
-            output_format = "rich_text"
+        if output_format not in {"markdown", "docx"}:
+            output_format = "markdown"
 
         system_prompt = {
             "role": "system",
@@ -191,24 +213,17 @@ class ChatCVUseCase:
                     cv_content = cv_content[:-3]
             cv_content = cv_content.strip()
             
-            clean_reply = reply_text + "\n\n*(Đã tạo CV thành công)*"
-            
-            generated_payload = {
-                "format": output_format,
-                "content": cv_content,
-                "chat_history": messages + [{"role": "assistant", "content": clean_reply.strip()}],
-            }
-            if output_format in {"markdown", "docx"}:
-                generated_payload["markdown"] = cv_content
-            else:
-                generated_payload["text"] = cv_content
+            clean_reply = (reply_text or "").strip()
+            if not clean_reply:
+                clean_reply = "*(Đã tạo CV thành công)*"
 
-            cv_entity = GeneratedCV(
+            cv_entity = await self._build_generated_cv(
                 user_id=user_id,
-                target_jd_text="Được cung cấp qua chat",
-                base_profile_data={"level": "Unknown", "job_title": "CV Từ Chatbot"},
-                generated_content=generated_payload,
-                status="completed"
+                messages=messages,
+                reply_text=clean_reply,
+                cv_content=cv_content,
+                output_format=output_format,
+                current_cv=current_cv,
             )
             await self.repo.create(cv_entity)
             return cv_entity.id
@@ -216,6 +231,7 @@ class ChatCVUseCase:
         stream = self.ai.chat_interaction_stream(chat_messages)
         
         try:
+            yield f"event: status\ndata: {json.dumps({'state': 'reasoning', 'label': 'AI đang phân tích yêu cầu và lên nội dung CV...'})}\n\n"
             # We must use proper async for loop when using async generators
             async for chunk in stream:
                 buffer += chunk
@@ -230,6 +246,7 @@ class ChatCVUseCase:
                                 ai_reply += out
                                 yield f"event: chat_chunk\ndata: {json.dumps(out)}\n\n"
                             in_cv = True
+                            yield f"event: status\ndata: {json.dumps({'state': 'drafting', 'label': 'AI đang soạn CV và đổ nội dung vào tài liệu...'})}\n\n"
                             yield f"event: signal\ndata: {json.dumps('START_CV')}\n\n"
                             continue
                         else:
@@ -249,8 +266,10 @@ class ChatCVUseCase:
                                 yield f"event: cv_chunk\ndata: {json.dumps(out)}\n\n"
                             in_cv = False
                             
+                            yield f"event: status\ndata: {json.dumps({'state': 'saving_version', 'label': 'Đang lưu phiên bản CV mới...'})}\n\n"
                             c_id = await save_cv_entity(cv_text, ai_reply)
                             yield f"event: cv_id\ndata: {json.dumps(str(c_id))}\n\n"
+                            yield f"event: status\ndata: {json.dumps({'state': 'done', 'label': 'Đã tạo xong phiên bản CV mới.'})}\n\n"
                             continue
                         else:
                             if len(buffer) > 20:
@@ -271,6 +290,7 @@ class ChatCVUseCase:
                 cv_text += buffer
                 yield f"event: cv_chunk\ndata: {json.dumps(buffer)}\n\n"
                 # If stream closed abruptly without closing tag, we still save
+                yield f"event: status\ndata: {json.dumps({'state': 'saving_version', 'label': 'Đang lưu phiên bản CV mới...'})}\n\n"
                 c_id = await save_cv_entity(cv_text, ai_reply)
                 yield f"event: cv_id\ndata: {json.dumps(str(c_id))}\n\n"
-
+                yield f"event: status\ndata: {json.dumps({'state': 'done', 'label': 'Đã tạo xong phiên bản CV mới.'})}\n\n"

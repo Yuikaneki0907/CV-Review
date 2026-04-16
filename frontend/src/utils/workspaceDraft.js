@@ -13,7 +13,7 @@ const buildKey = (userId, scope) => `${DRAFT_PREFIX}:${userId}:${scope}`;
 export const getDraftScope = (id) => (id ? `id:${id}` : 'new');
 
 const normalizeOutputFormat = (value) =>
-  value === 'markdown' || value === 'docx' || value === 'rich_text' ? value : 'rich_text';
+  value === 'markdown' || value === 'docx' ? value : 'markdown';
 
 const normalizeMessages = (messages) => {
   if (!Array.isArray(messages)) return [];

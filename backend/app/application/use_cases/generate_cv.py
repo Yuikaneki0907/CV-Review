@@ -48,11 +48,8 @@ class GenerateCVUseCase:
         generated_content = {
             "content": cv_content,
             "format": output_format,
+            "markdown": cv_content,
         }
-        if output_format in {"markdown", "docx"}:
-            generated_content["markdown"] = cv_content
-        else:
-            generated_content["text"] = cv_content
         
         # 3. Save to database
         cv_entity = GeneratedCV(

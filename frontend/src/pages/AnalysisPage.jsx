@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getAnalysis } from '../api';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+import { API_BASE, getAnalysis } from '../api';
 
 const PIPELINE_STEPS = [
   { key: 'extract', label: 'Trích xuất thông tin CV' },
@@ -39,9 +37,12 @@ export default function AnalysisPage() {
   const connectSSE = () => {
     const token = localStorage.getItem('token');
     if (!token) return;
+    eventSourceRef.current?.abort?.();
 
     // EventSource doesn't support custom headers, so we use fetch-based SSE
     const url = `${API_BASE}/analysis/${id}/stream`;
+    const controller = new AbortController();
+    eventSourceRef.current = controller;
 
     const fetchSSE = async () => {
       try {
@@ -50,10 +51,16 @@ export default function AnalysisPage() {
             'Authorization': `Bearer ${token}`,
             'Accept': 'text/event-stream',
           },
+          signal: controller.signal,
         });
 
         if (!response.ok) {
           console.warn('SSE connection failed, falling back to polling');
+          fallbackPolling();
+          return;
+        }
+
+        if (!response.body) {
           fallbackPolling();
           return;
         }
@@ -82,8 +89,13 @@ export default function AnalysisPage() {
           }
         }
       } catch (err) {
+        if (controller.signal.aborted) return;
         console.warn('SSE error, falling back to polling:', err);
         fallbackPolling();
+      } finally {
+        if (eventSourceRef.current === controller) {
+          eventSourceRef.current = null;
+        }
       }
     };
 
@@ -95,7 +107,7 @@ export default function AnalysisPage() {
     const { step, status, duration_ms } = event;
 
     if (step === 'pipeline') {
-      if (status === 'done' || status === 'failed') {
+      if (status === 'done' || status === 'completed' || status === 'failed') {
         // Pipeline finished, fetch final data
         setTimeout(() => fetchData(), 500);
       }
@@ -130,10 +142,30 @@ export default function AnalysisPage() {
 
     return () => {
       if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+        eventSourceRef.current.abort();
       }
     };
   }, [id]);
+
+  const hasJdEvaluation = data?.jd_evaluation && Object.keys(data.jd_evaluation).length > 0;
+  const hasSalaryData = data?.salary_negotiation && Object.keys(data.salary_negotiation).length > 0;
+  const jdSummary = data?.jd_evaluation?.summary || data?.jd_evaluation?.core_requirements;
+  const jdDifficulty = [
+    data?.jd_evaluation?.level,
+    data?.jd_evaluation?.difficulty,
+    data?.jd_evaluation?.years_of_experience,
+  ].filter(Boolean).join(' · ') || data?.jd_evaluation?.difficulty_level;
+  const jdAdvice = data?.jd_evaluation?.strategic_advice
+    || (data?.jd_evaluation?.missing_info?.length
+      ? `Thiếu thông tin: ${data.jd_evaluation.missing_info.join(', ')}`
+      : '');
+  const salaryRange = data?.salary_negotiation?.expected_salary_range || data?.salary_negotiation?.estimated_range;
+  const salaryContext = data?.salary_negotiation?.market_context || data?.salary_negotiation?.negotiation_strategy;
+  const salaryTips = data?.salary_negotiation?.negotiation_tips
+    || [
+      ...(data?.salary_negotiation?.cv_strengths || []).map((item) => `Điểm mạnh: ${item}`),
+      ...(data?.salary_negotiation?.cv_weaknesses || []).map((item) => `Cần chuẩn bị: ${item}`),
+    ];
 
   if (loading) {
     return (
@@ -262,19 +294,19 @@ export default function AnalysisPage() {
         {tab === 'jd_eval' && (
           <div className="jd-eval-tab fade-in">
             <h3>Phân tích JD</h3>
-            {data.jd_evaluation ? (
+            {hasJdEvaluation ? (
               <div className="card-grid">
                 <div className="card">
                   <h4>Yêu cầu chính</h4>
-                  <p>{data.jd_evaluation.core_requirements}</p>
+                  <p>{jdSummary || 'Chưa có tóm tắt JD'}</p>
                 </div>
                 <div className="card">
                   <h4>Mức độ phù hợp</h4>
-                  <p>{data.jd_evaluation.difficulty_level}</p>
+                  <p>{jdDifficulty || 'Chưa xác định'}</p>
                 </div>
                 <div className="card">
                   <h4>Nhận xét</h4>
-                  <p>{data.jd_evaluation.strategic_advice}</p>
+                  <p>{jdAdvice || 'Chưa có nhận xét bổ sung'}</p>
                 </div>
               </div>
             ) : (
@@ -292,7 +324,7 @@ export default function AnalysisPage() {
                 {data.interview_questions.map((q, i) => (
                   <div key={i} className="qa-card">
                     <div className="qa-question"><strong>Q:</strong> {q.question}</div>
-                    <div className="qa-reason"><em>Mục đích:</em> {q.reason}</div>
+                    <div className="qa-reason"><em>Mục đích:</em> {q.purpose || q.reason || 'Không có mô tả'}</div>
                   </div>
                 ))}
               </div>
@@ -305,17 +337,17 @@ export default function AnalysisPage() {
         {tab === 'salary' && (
           <div className="salary-tab fade-in">
             <h3>Đề xuất Deal Lương</h3>
-            {data.salary_negotiation ? (
+            {hasSalaryData ? (
               <div className="salary-content">
                 <div className="salary-range card primary-card">
                   <h4>Khoảng lương dự kiến</h4>
-                  <div className="range-value">{data.salary_negotiation.estimated_range}</div>
-                  <p>{data.salary_negotiation.market_context}</p>
+                  <div className="range-value">{salaryRange || 'Chưa có dữ liệu'}</div>
+                  <p>{salaryContext || 'Chưa có phân tích chiến lược đàm phán'}</p>
                 </div>
                 <div className="card">
                   <h4>Chiến lược đàm phán</h4>
                   <ul>
-                    {data.salary_negotiation.negotiation_tips?.map((tip, i) => (
+                    {salaryTips?.map((tip, i) => (
                       <li key={i}>{tip}</li>
                     ))}
                   </ul>

@@ -20,7 +20,8 @@ export const runWorkspaceChatInBackground = async ({
   scope,
   messages,
   title = '',
-  outputFormat = 'rich_text',
+  outputFormat = 'markdown',
+  currentCvId = null,
 }) => {
   if (!userId || !scope) {
     throw new Error('Missing userId/scope when running background chat job');
@@ -43,7 +44,7 @@ export const runWorkspaceChatInBackground = async ({
   });
   emitJobEvent({ userId, scope, status: 'running' });
 
-  const jobPromise = chatCVGeneration(normalizedMessages, outputFormat)
+  const jobPromise = chatCVGeneration(normalizedMessages, outputFormat, null, currentCvId)
     .then((res) => {
       const reply = res?.data?.reply || 'Mình đã xử lý xong yêu cầu.';
       const generatedCvId = res?.data?.generated_cv_id || null;

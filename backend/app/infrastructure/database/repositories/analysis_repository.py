@@ -123,7 +123,8 @@ class AnalysisRepository(IAnalysisRepository):
                 AnalysisModel.status.in_([
                     AnalysisStatus.PENDING.value,
                     AnalysisStatus.PROCESSING.value,
-                ])
+                ]),
+                AnalysisModel.deleted_at.is_(None),
             )
         )
         return [self._to_entity(m) for m in result.scalars().all()]

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { login as apiLogin, register as apiRegister } from './api';
+import { getCurrentUserProfile, login as apiLogin, register as apiRegister } from './api';
 import logger from './logger';
 
 const AuthContext = createContext(null);
@@ -8,17 +8,50 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
 
+  const logout = () => {
+    logger.info('Logout');
+    localStorage.removeItem('token');
+    setToken(null);
+    setUser(null);
+  };
+
   useEffect(() => {
-    if (token) {
+    if (!token) {
+      setUser(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const restoreSession = async () => {
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
-        setUser({ id: payload.sub, email: payload.email });
-        logger.info('Session restored from token', { email: payload.email });
-      } catch {
-        logger.warn('Invalid token found in localStorage — logging out');
-        logout();
+        if (!payload?.sub) {
+          throw new Error('Missing sub claim');
+        }
+
+        setUser((prev) => ({ id: payload.sub, email: prev?.email || '' }));
+
+        const res = await getCurrentUserProfile();
+        if (cancelled) return;
+
+        setUser(res.data);
+        logger.info('Session restored from API', { email: res.data.email });
+      } catch (error) {
+        if (cancelled) return;
+
+        logger.warn('Session restore failed — logging out', { error: error?.message });
+        localStorage.removeItem('token');
+        setToken(null);
+        setUser(null);
       }
-    }
+    };
+
+    restoreSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   const loginUser = async (email, password) => {
@@ -45,13 +78,6 @@ export function AuthProvider({ children }) {
       logger.error('Register FAILED', { email, status: err.response?.status });
       throw err;
     }
-  };
-
-  const logout = () => {
-    logger.info('Logout');
-    localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
   };
 
   return (

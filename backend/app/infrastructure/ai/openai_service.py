@@ -283,7 +283,6 @@ If no issues found, return: {{"issues": []}}"""
         output_format: str = "markdown",
     ) -> str:
         format_guide = {
-            "rich_text": "trình bày theo kiểu văn bản dễ đọc (không dùng cú pháp markdown như #, **, -).",
             "markdown": "tuân thủ markdown chuẩn (Heading, bullet list).",
             "docx": "tuân thủ markdown sạch (Heading rõ ràng, bullet list chuẩn) để convert sang DOCX.",
         }.get(output_format, "tuân thủ markdown chuẩn.")
@@ -359,3 +358,55 @@ Frontend Developer với kinh nghiệm làm việc cùng ReactJS và TypeScript.
             self._model, len(messages), len(text), duration,
         )
         return text
+
+    async def chat_interaction_stream(self, messages: List[Dict[str, str]]):
+        response = self._client.chat.completions.create(
+            model=self._model,
+            messages=messages,
+            temperature=0.7,
+            stream=True,
+        )
+        for chunk in response:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                yield delta
+
+    async def plan_cv_edits(
+        self,
+        messages: List[Dict[str, str]],
+        current_cv: str,
+        output_format: str = "markdown",
+    ) -> Dict:
+        prompt = f"""
+        Bạn là trợ lý chỉnh sửa CV theo yêu cầu hội thoại.
+        Nhiệm vụ: KHÔNG viết lại toàn bộ CV. Chỉ trả về các thao tác chỉnh sửa cục bộ nhỏ nhất cần thiết.
+
+        Conversation:
+        {json.dumps(messages, ensure_ascii=False, indent=2)}
+
+        Current CV ({output_format}, lưu dưới markdown):
+        ---
+        {current_cv}
+        ---
+
+        Chỉ được dùng các loại operation sau:
+        1. replace_section_body: {{"type":"replace_section_body","heading":"SUMMARY","content":"...nội dung mới của section, KHÔNG lặp lại heading"}}
+        2. append_to_section: {{"type":"append_to_section","heading":"EXPERIENCE","content":"- bullet mới\\n- bullet mới 2"}}
+        3. replace_text: {{"type":"replace_text","target":"đoạn cũ","content":"đoạn mới"}}
+        4. insert_after_text: {{"type":"insert_after_text","target":"đoạn mốc","content":"\\n- thêm ngay sau"}}
+        5. remove_text: {{"type":"remove_text","target":"đoạn cần xoá"}}
+
+        Quy tắc:
+        - Không phát minh dữ kiện mới ngoài hội thoại và CV hiện tại.
+        - Nếu yêu cầu chưa đủ rõ hoặc thiếu dữ kiện, KHÔNG tạo operation. Hãy hỏi lại ở assistant_reply.
+        - Không trả về full CV.
+        - Ưu tiên chỉnh rất cục bộ, giữ nguyên phần không liên quan.
+
+        Trả về JSON duy nhất đúng schema:
+        {{
+          "assistant_reply": "Tin nhắn ngắn gọn cho user bằng tiếng Việt",
+          "operations": [{{...}}]
+        }}
+        """
+        result = self._chat_json(prompt)
+        return result if isinstance(result, dict) else {"assistant_reply": "", "operations": []}

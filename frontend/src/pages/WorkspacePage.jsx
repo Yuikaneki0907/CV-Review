@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { exportGeneratedCV, getGeneratedCV, updateGeneratedCV, streamChatCVGeneration, streamChatAnalysis } from '../api';
+import {
+  createGeneratedCVVersion,
+  downloadGeneratedCV,
+  getGeneratedCV,
+  getGeneratedCVVersions,
+  streamChatAnalysis,
+  streamChatCVGeneration,
+} from '../api';
 import { useAuth } from '../AuthContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -25,32 +32,27 @@ import {
 } from '../utils/analysisInsights';
 
 const OUTPUT_FORMAT_OPTIONS = [
-  { value: 'rich_text', label: 'Rich Text' },
   { value: 'markdown', label: 'Markdown' },
   { value: 'docx', label: 'DOCX' },
 ];
 
 const OUTPUT_FORMAT_LABELS = {
-  rich_text: 'Rich Text',
   markdown: 'Markdown',
   docx: 'DOCX',
 };
 
 const normalizeOutputFormat = (value) =>
-  value === 'markdown' || value === 'docx' || value === 'rich_text' ? value : 'rich_text';
+  value === 'markdown' || value === 'docx' ? value : 'markdown';
 
-const inferOutputFormatFromDocument = (doc, fallback = 'rich_text') => {
+const inferOutputFormatFromDocument = (doc, fallback = 'markdown') => {
   const content = doc?.generated_content;
   const explicitFormat = content?.format;
-  if (explicitFormat === 'rich_text' || explicitFormat === 'markdown' || explicitFormat === 'docx') {
+  if (explicitFormat === 'markdown' || explicitFormat === 'docx') {
     return explicitFormat;
   }
 
   if (typeof content?.markdown === 'string' && content.markdown.trim().length > 0) {
     return 'markdown';
-  }
-  if (typeof content?.text === 'string' && content.text.trim().length > 0) {
-    return 'rich_text';
   }
   return normalizeOutputFormat(fallback);
 };
@@ -89,10 +91,12 @@ export default function WorkspacePage() {
   const [cvDocument, setCvDocument] = useState(null);
   const [editableContent, setEditableContent] = useState('');
   const [restoredDraft, setRestoredDraft] = useState(false);
-  const [outputFormat, setOutputFormat] = useState('rich_text');
+  const [outputFormat, setOutputFormat] = useState('markdown');
   const [exporting, setExporting] = useState(false);
   const [savingEdits, setSavingEdits] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [chatStatus, setChatStatus] = useState(null);
+  const [versionHistory, setVersionHistory] = useState([]);
 
   // ── CV Analysis attachment state ──────────────────
   const [attachedCvFile, setAttachedCvFile] = useState(null);
@@ -142,6 +146,8 @@ export default function WorkspacePage() {
     setShowAttachPanel(false);
     setAttachedCvFile(null);
     setAttachedJdText('');
+    setChatStatus(null);
+    setVersionHistory([]);
 
     const initWorkspace = async () => {
       const draft = user?.id ? loadWorkspaceDraft(user.id, scope) : null;
@@ -194,12 +200,12 @@ export default function WorkspacePage() {
           setOutputFormat('markdown');
         } else {
           setEditableContent('');
-          setOutputFormat('rich_text');
+          setOutputFormat('markdown');
         }
         setLoading(true);
 
         // Send to backend
-        handleChatTurn(initialMsgs, navTemplateContent ? 'markdown' : 'rich_text', navTemplateId);
+        handleChatTurn(initialMsgs, 'markdown', navTemplateId);
       } else {
         // Empty workspace or restore unfinished draft
         if (draft?.generatedCvId) {
@@ -222,7 +228,7 @@ export default function WorkspacePage() {
           setCvDocument(null);
           setEditableContent('');
           setLoading(false);
-          setOutputFormat('rich_text');
+          setOutputFormat('markdown');
         }
       }
 
@@ -288,7 +294,31 @@ export default function WorkspacePage() {
     }
     setEditableContent(extractContentFromDocument(cvDocument));
     setSaveMessage('');
-  }, [cvDocument?.id, cvDocument?.generated_content?.content, cvDocument?.generated_content?.markdown, cvDocument?.generated_content?.text]);
+  }, [cvDocument?.id, cvDocument?.generated_content?.content, cvDocument?.generated_content?.markdown]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (!cvDocument?.id) {
+      setVersionHistory([]);
+      return undefined;
+    }
+
+    getGeneratedCVVersions(cvDocument.id)
+      .then((res) => {
+        if (mounted) {
+          setVersionHistory(Array.isArray(res?.data) ? res.data : []);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to load generated CV versions:', error);
+        if (mounted) setVersionHistory([]);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [cvDocument?.id]);
 
   const [streamAiReply, setStreamAiReply] = useState('');
   const [streamCvText, setStreamCvText] = useState('');
@@ -298,6 +328,7 @@ export default function WorkspacePage() {
     setLoading(true);
     setStreamAiReply('');
     setStreamCvText('');
+    setChatStatus({ state: 'reasoning', label: 'AI đang phân tích yêu cầu...' });
     setAnalysisMode(false);
     setAnalysisSteps({});
     setAnalysisResults(null);
@@ -309,11 +340,14 @@ export default function WorkspacePage() {
       let finalReply = '';
       let idcv = null;
       let finalcvtext = '';
+      const activeCvId = cvDocument?.id || null;
 
       await streamChatCVGeneration(currentMessages, normalizeOutputFormat(formatOverride), (val) => {
         const { event, data } = val;
 
-        if (event === 'chat_chunk') {
+        if (event === 'status') {
+          setChatStatus(data);
+        } else if (event === 'chat_chunk') {
           finalReply += data;
           setStreamAiReply(finalReply);
         } else if (event === 'cv_chunk') {
@@ -328,7 +362,7 @@ export default function WorkspacePage() {
         } else if (event === 'error') {
           console.error("AI Error:", data);
         }
-      }, templateOverride);
+      }, templateOverride, activeCvId);
 
       const finalMessages = [...currentMessages, { role: 'assistant', content: finalReply || 'Mình đã xử lý xong yêu cầu.' }];
 
@@ -336,6 +370,7 @@ export default function WorkspacePage() {
         setMessages(finalMessages);
         setStreamAiReply('');
         setStreamCvText('');
+        setChatStatus(null);
       }
 
       if (idcv) {
@@ -368,6 +403,7 @@ export default function WorkspacePage() {
       console.error(e);
       if (mountedRef.current) {
         setMessages([...currentMessages, { role: 'assistant', content: 'Xin lỗi, đã có lỗi kết nối xảy ra. Vui lòng thử lại.' }]);
+        setChatStatus(null);
       }
     } finally {
       if (mountedRef.current) {
@@ -390,6 +426,7 @@ export default function WorkspacePage() {
     ];
     setMessages(newMsgs);
     setLoading(true);
+    setChatStatus(null);
     setAnalysisMode(true);
     setAnalysisSteps({});
     setAnalysisResults(null);
@@ -467,23 +504,27 @@ export default function WorkspacePage() {
   const hasUnsavedEdits = Boolean(cvDocument) && editableContent !== originalDocumentContent;
 
   const handleSaveEdits = async () => {
-    if (!cvDocument?.id || savingEdits || !hasUnsavedEdits) return true;
+    if (!cvDocument?.id || savingEdits) return null;
+    if (!hasUnsavedEdits) return cvDocument;
 
     setSavingEdits(true);
-    setSaveMessage('Đang lưu thay đổi...');
+    setSaveMessage('Đang lưu thành phiên bản mới...');
     try {
-      const res = await updateGeneratedCV(cvDocument.id, {
+      const res = await createGeneratedCVVersion(cvDocument.id, {
         content: editableContent,
         output_format: documentFormat,
       });
       setCvDocument(res.data);
       setEditableContent(extractContentFromDocument(res.data));
-      setSaveMessage('Đã lưu thay đổi');
-      return true;
+      setSaveMessage(`Đã lưu phiên bản v${res.data.version}`);
+      if (mountedRef.current && res.data?.id && res.data.id !== id) {
+        navigate(`/workspace/${res.data.id}`, { replace: true, state: { keepMessages: true } });
+      }
+      return res.data;
     } catch (error) {
       console.error('Failed to save generated CV edits:', error);
       setSaveMessage('Lưu thất bại, vui lòng thử lại');
-      return false;
+      return null;
     } finally {
       setSavingEdits(false);
     }
@@ -491,17 +532,19 @@ export default function WorkspacePage() {
 
   const handleExport = async () => {
     if (!cvDocument?.id || exporting) return;
+    let activeDocument = cvDocument;
     if (hasUnsavedEdits) {
-      const ok = await handleSaveEdits();
-      if (!ok) return;
+      const savedDocument = await handleSaveEdits();
+      if (!savedDocument) return;
+      activeDocument = savedDocument;
     }
 
-    const exportFormat = documentFormat === 'rich_text' ? 'text' : documentFormat;
-    const fallbackExt = exportFormat === 'docx' ? 'docx' : exportFormat === 'markdown' ? 'md' : 'txt';
+    const exportFormat = inferOutputFormatFromDocument(activeDocument, documentFormat);
+    const fallbackExt = exportFormat === 'docx' ? 'docx' : 'md';
 
     setExporting(true);
     try {
-      const response = await exportGeneratedCV(cvDocument.id, exportFormat);
+      const response = await downloadGeneratedCV(activeDocument.id, exportFormat);
       const headerValue = response.headers?.['content-disposition'] || response.headers?.['Content-Disposition'];
       const filename = parseFilenameFromDisposition(headerValue) || `generated_cv.${fallbackExt}`;
       const blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
@@ -554,7 +597,17 @@ export default function WorkspacePage() {
           {loading && !streamAiReply && (
             <div className="chat-bubble-wrapper assistant">
               <div className="chat-bubble typing-indicator">
-                <span></span><span></span><span></span>
+                <div className="chat-waiting-copy">
+                  <div className="chat-waiting-dots">
+                    <span></span><span></span><span></span>
+                  </div>
+                  <strong>{chatStatus?.label || 'AI đang suy luận...'}</strong>
+                  <small>
+                    {cvDocument
+                      ? 'Yêu cầu sẽ được áp vào CV hiện tại và lưu thành phiên bản mới.'
+                      : 'Hệ thống đang chuẩn bị phản hồi và tài liệu cho bạn.'}
+                  </small>
+                </div>
               </div>
             </div>
           )}
@@ -794,16 +847,35 @@ export default function WorkspacePage() {
             <DocumentCheckIcon className="doc-icon" />
             <span>{cvDocument ? `CV - ${cvDocument.base_profile_data?.job_title || 'Generated'}` : 'Document Viewer'}</span>
             <span className="doc-format-chip">{OUTPUT_FORMAT_LABELS[documentFormat]}</span>
+            {cvDocument?.version ? (
+              <span className="doc-version-chip">{`v${cvDocument.version}`}</span>
+            ) : null}
           </div>
           {cvDocument && (
             <div className="doc-actions">
+              {versionHistory.length > 0 && (
+                <label className="doc-version-select-wrap">
+                  <span>Version</span>
+                  <select
+                    className="doc-version-select"
+                    value={cvDocument.id}
+                    onChange={(e) => navigate(`/workspace/${e.target.value}`, { replace: true, state: { keepMessages: true } })}
+                  >
+                    {versionHistory.map((version) => (
+                      <option key={version.id} value={version.id}>
+                        {`v${version.version}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <button
                 className="btn-ghost"
                 style={hasUnsavedEdits ? { borderColor: 'var(--primary)', color: 'var(--primary)' } : {}}
                 onClick={handleSaveEdits}
                 disabled={savingEdits || !hasUnsavedEdits}
               >
-                {savingEdits ? 'Saving...' : 'Save edits'}
+                {savingEdits ? 'Đang lưu...' : 'Lưu thành version mới'}
               </button>
               <button
                 className="btn-primary"
@@ -811,7 +883,7 @@ export default function WorkspacePage() {
                 onClick={handleExport}
                 disabled={exporting}
               >
-                {exporting ? 'Exporting...' : `Export ${OUTPUT_FORMAT_LABELS[documentFormat]}`}
+                {exporting ? 'Đang tải...' : `Download ${OUTPUT_FORMAT_LABELS[documentFormat]}`}
               </button>
             </div>
           )}

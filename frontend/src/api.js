@@ -1,7 +1,7 @@
 import axios from 'axios';
 import logger from './logger';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
+export const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -47,6 +47,7 @@ api.interceptors.response.use(
 // Auth
 export const register = (data) => api.post('/auth/register', data);
 export const login = (data) => api.post('/auth/login', data);
+export const getCurrentUserProfile = () => api.get('/auth/me');
 
 // Analysis
 export const createAnalysis = (formData) =>
@@ -65,21 +66,25 @@ export const deleteAnalysis = (id) => api.delete(`/analysis/${id}`);
 export const createGeneratedCV = (data) => api.post('/generated-cvs/', data);
 export const listGeneratedCVs = (limit = 20, offset = 0) => api.get(`/generated-cvs/?limit=${limit}&offset=${offset}`);
 export const getGeneratedCV = (id) => api.get(`/generated-cvs/${id}`);
+export const getGeneratedCVVersions = (id) => api.get(`/generated-cvs/${id}/versions`);
 export const deleteGeneratedCV = (id) => api.delete(`/generated-cvs/${id}`);
+export const createGeneratedCVVersion = (id, data) => api.post(`/generated-cvs/${id}/versions`, data);
 export const updateGeneratedCV = (id, data) => api.patch(`/generated-cvs/${id}`, data);
-export const chatCVGeneration = (messages, outputFormat = 'rich_text', templateId = null) =>
+export const chatCVGeneration = (messages, outputFormat = 'markdown', templateId = null, currentCvId = null) =>
   api.post('/generated-cvs/chat', {
     messages,
     output_format: outputFormat,
     ...(templateId && { template_id: templateId }),
+    ...(currentCvId && { current_cv_id: currentCvId }),
   });
-export const exportGeneratedCV = (id, format = 'markdown') =>
-  api.get(`/generated-cvs/${id}/export`, {
+export const downloadGeneratedCV = (id, format = 'markdown') =>
+  api.get(`/generated-cvs/${id}/download`, {
     params: { format },
     responseType: 'blob',
   });
+export const exportGeneratedCV = downloadGeneratedCV;
 
-export const streamChatCVGeneration = async (messages, outputFormat = 'rich_text', onEvent, templateId = null) => {
+export const streamChatCVGeneration = async (messages, outputFormat = 'markdown', onEvent, templateId = null, currentCvId = null) => {
   const token = localStorage.getItem('token');
   const headers = {
     'Content-Type': 'application/json',
@@ -91,7 +96,12 @@ export const streamChatCVGeneration = async (messages, outputFormat = 'rich_text
   const response = await fetch(`${API_BASE}/generated-cvs/chat/stream`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ messages, output_format: outputFormat, ...(templateId && { template_id: templateId }) }),
+    body: JSON.stringify({
+      messages,
+      output_format: outputFormat,
+      ...(templateId && { template_id: templateId }),
+      ...(currentCvId && { current_cv_id: currentCvId }),
+    }),
   });
 
   if (!response.ok) {

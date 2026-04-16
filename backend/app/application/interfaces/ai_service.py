@@ -96,3 +96,20 @@ class IAIService(ABC):
         Yields the AI's response text chunks.
         """
         ...
+
+    @abstractmethod
+    async def plan_cv_edits(
+        self,
+        messages: List[Dict[str, str]],
+        current_cv: str,
+        output_format: str = "markdown",
+    ) -> Dict:
+        """Return structured edit operations for an existing CV.
+
+        Expected response shape:
+        {
+          "assistant_reply": "...",
+          "operations": [{...}]
+        }
+        """
+        ...

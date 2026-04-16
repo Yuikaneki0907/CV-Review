@@ -8,6 +8,7 @@ import AnalysisPage from './pages/AnalysisPage';
 import HistoryPage from './pages/HistoryPage';
 import GenerateCVPage from './pages/GenerateCVPage';
 import WorkspacePage from './pages/WorkspacePage';
+import GeneratedCVView from './pages/GeneratedCVView';
 
 
 function PrivateRoute({ children }) {
@@ -37,6 +38,7 @@ export default function App() {
               <Route path="/analysis/:id" element={<PrivateRoute><AnalysisPage /></PrivateRoute>} />
               <Route path="/history" element={<PrivateRoute><HistoryPage /></PrivateRoute>} />
               <Route path="/generate-cv" element={<PrivateRoute><GenerateCVPage /></PrivateRoute>} />
+              <Route path="/generated-cvs/:id" element={<PrivateRoute><GeneratedCVView /></PrivateRoute>} />
               <Route path="/workspace" element={<PrivateRoute><WorkspacePage /></PrivateRoute>} />
               <Route path="/workspace/:id" element={<PrivateRoute><WorkspacePage /></PrivateRoute>} />
 

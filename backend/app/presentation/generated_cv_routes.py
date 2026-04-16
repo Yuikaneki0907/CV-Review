@@ -9,12 +9,18 @@ from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dto.requests import GenerateCVRequest, ChatContextRequest, GeneratedCVUpdateRequest
-from app.application.dto.responses import GeneratedCVResponse, GeneratedCVListResponse, ChatContextResponse
+from app.application.dto.responses import (
+    ChatContextResponse,
+    GeneratedCVListResponse,
+    GeneratedCVResponse,
+    GeneratedCVVersionResponse,
+)
+from app.application.use_cases.edit_generated_cv import EditGeneratedCVUseCase
 from app.application.use_cases.generate_cv import GenerateCVUseCase
 from app.application.use_cases.chat_cv import ChatCVUseCase
+from app.infrastructure.ai import ai_service_factory
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.generated_cv_repository import GeneratedCVRepository
-from app.infrastructure.ai.gemini_service import GeminiService
 from app.presentation.auth_routes import get_current_user_id
 from app.logger import get_logger
 
@@ -61,18 +67,15 @@ def _get_generated_content_payload(cv_entity) -> tuple[str, str]:
     content_data = cv_entity.generated_content if isinstance(cv_entity.generated_content, dict) else {}
     output_format = content_data.get("format")
 
-    if output_format not in {"rich_text", "markdown", "docx"}:
+    if output_format not in {"markdown", "docx"}:
         if isinstance(content_data.get("markdown"), str):
             output_format = "markdown"
-        elif isinstance(content_data.get("text"), str):
-            output_format = "rich_text"
         else:
-            output_format = "rich_text"
+            output_format = "markdown"
 
     content = (
         content_data.get("content")
         or content_data.get("markdown")
-        or content_data.get("text")
         or ""
     )
     return output_format, content
@@ -86,6 +89,31 @@ def _build_export_filename(cv_entity, ext: str) -> str:
     return f"{normalized[:60]}.{ext}"
 
 
+def _to_generated_cv_response(cv_entity) -> GeneratedCVResponse:
+    return GeneratedCVResponse(
+        id=cv_entity.id,
+        conversation_id=cv_entity.conversation_id,
+        version=cv_entity.version,
+        parent_version_id=cv_entity.parent_version_id,
+        status=cv_entity.status,
+        target_jd_text=cv_entity.target_jd_text,
+        base_profile_data=cv_entity.base_profile_data,
+        generated_content=cv_entity.generated_content,
+        created_at=cv_entity.created_at,
+    )
+
+
+def _to_generated_cv_version_response(cv_entity) -> GeneratedCVVersionResponse:
+    return GeneratedCVVersionResponse(
+        id=cv_entity.id,
+        conversation_id=cv_entity.conversation_id,
+        version=cv_entity.version,
+        parent_version_id=cv_entity.parent_version_id,
+        status=cv_entity.status,
+        created_at=cv_entity.created_at,
+    )
+
+
 @router.post("/chat", response_model=ChatContextResponse)
 async def chat_cv_generation(
     req: ChatContextRequest,
@@ -94,19 +122,34 @@ async def chat_cv_generation(
 ):
     """Interact with CV AI chatbot."""
     cv_repo = GeneratedCVRepository(session)
-    ai_service = GeminiService()
-    use_case = ChatCVUseCase(cv_repo, ai_service)
+    ai_service = ai_service_factory()
 
     try:
-        # Convert Request DTOs to raw dicts for AI
         messages = [{"role": msg.role, "content": msg.content} for msg in req.messages]
-        
-        reply, cv_id = await use_case.execute(
-            user_id=user_id,
-            messages=messages,
-            output_format=req.output_format,
-            template_id=req.template_id,
-        )
+        current_cv = None
+        if req.current_cv_id:
+            current_cv = await cv_repo.get_by_id(req.current_cv_id)
+            if not current_cv or current_cv.user_id != user_id:
+                raise HTTPException(status_code=404, detail="Không tìm thấy phiên bản CV hiện tại")
+
+        if current_cv:
+            use_case = EditGeneratedCVUseCase(cv_repo, ai_service)
+            reply, new_cv, _ = await use_case.execute(
+                user_id=user_id,
+                current_cv=current_cv,
+                messages=messages,
+                output_format=req.output_format,
+            )
+            cv_id = new_cv.id if new_cv else None
+        else:
+            use_case = ChatCVUseCase(cv_repo, ai_service)
+            reply, cv_id = await use_case.execute(
+                user_id=user_id,
+                messages=messages,
+                output_format=req.output_format,
+                template_id=req.template_id,
+            )
+
         if cv_id:
             await session.commit()
             
@@ -114,6 +157,9 @@ async def chat_cv_generation(
             reply=reply,
             generated_cv_id=cv_id
         )
+    except HTTPException:
+        await session.rollback()
+        raise
     except Exception as e:
         await session.rollback()
         logger.error("Failed in chat interaction: %s", str(e), exc_info=True)
@@ -127,11 +173,52 @@ async def chat_cv_generation_stream(
 ):
     """Interact with CV AI chatbot via Server-Sent Events (SSE)."""
     cv_repo = GeneratedCVRepository(session)
-    ai_service = GeminiService()
-    use_case = ChatCVUseCase(cv_repo, ai_service)
+    ai_service = ai_service_factory()
 
     try:
         messages = [{"role": msg.role, "content": msg.content} for msg in req.messages]
+        if req.current_cv_id:
+            current_cv = await cv_repo.get_by_id(req.current_cv_id)
+            if not current_cv or current_cv.user_id != user_id:
+                raise HTTPException(status_code=404, detail="Không tìm thấy phiên bản CV hiện tại")
+
+            use_case = EditGeneratedCVUseCase(cv_repo, ai_service)
+
+            async def _edit_stream():
+                import json
+
+                try:
+                    yield f"event: status\ndata: {json.dumps({'state': 'reasoning', 'label': 'AI đang phân tích yêu cầu chỉnh sửa...'})}\n\n"
+                    reply, new_cv, next_content = await use_case.execute(
+                        user_id=user_id,
+                        current_cv=current_cv,
+                        messages=messages,
+                        output_format=req.output_format,
+                    )
+                    if reply:
+                        yield f"event: chat_chunk\ndata: {json.dumps(reply)}\n\n"
+
+                    if new_cv:
+                        yield f"event: status\ndata: {json.dumps({'state': 'applying_edits', 'label': 'Đang áp thay đổi vào CV hiện tại...'})}\n\n"
+                        await session.commit()
+                        yield f"event: cv_chunk\ndata: {json.dumps(next_content)}\n\n"
+                        yield f"event: status\ndata: {json.dumps({'state': 'saving_version', 'label': 'Đã lưu thành phiên bản CV mới.'})}\n\n"
+                        yield f"event: cv_id\ndata: {json.dumps(str(new_cv.id))}\n\n"
+                        yield f"event: status\ndata: {json.dumps({'state': 'done', 'label': 'Hoàn tất cập nhật CV.'})}\n\n"
+                    else:
+                        await session.rollback()
+                        yield f"event: status\ndata: {json.dumps({'state': 'waiting_input', 'label': 'Mình cần thêm thông tin trước khi sửa CV.'})}\n\n"
+                except Exception as exc:
+                    await session.rollback()
+                    logger.error("Failed to edit CV via chat stream: %s", str(exc), exc_info=True)
+                    yield f"event: error\ndata: {json.dumps(str(exc))}\n\n"
+
+            return StreamingResponse(
+                _edit_stream(),
+                media_type="text/event-stream",
+            )
+
+        use_case = ChatCVUseCase(cv_repo, ai_service)
         stream_generator = use_case.execute_stream(
             user_id=user_id,
             messages=messages,
@@ -142,6 +229,8 @@ async def chat_cv_generation_stream(
             stream_generator,
             media_type="text/event-stream"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to start chat streaming: %s", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Lỗi khi bắt đầu stream AI")
@@ -155,7 +244,7 @@ async def generate_cv(
     """Generate a template CV via AI and save it."""
     
     cv_repo = GeneratedCVRepository(session)
-    ai_service = GeminiService()
+    ai_service = ai_service_factory()
     use_case = GenerateCVUseCase(cv_repo, ai_service)
     
     try:
@@ -167,16 +256,11 @@ async def generate_cv(
             output_format=req.output_format,
         )
         await session.commit()
-        
-        return GeneratedCVResponse(
-            id=cv_entity.id,
-            status=cv_entity.status,
-            target_jd_text=cv_entity.target_jd_text,
-            base_profile_data=cv_entity.base_profile_data,
-            generated_content=cv_entity.generated_content,
-            created_at=cv_entity.created_at
-        )
+        return _to_generated_cv_response(cv_entity)
 
+    except HTTPException:
+        await session.rollback()
+        raise
     except Exception as e:
         await session.rollback()
         logger.error("Failed to generate CV: %s", str(e), exc_info=True)
@@ -197,6 +281,8 @@ async def list_generated_cvs(
     return [
         GeneratedCVListResponse(
             id=c.id,
+            conversation_id=c.conversation_id,
+            version=c.version,
             status=c.status,
             target_jd_text=c.target_jd_text,
             job_title=c.base_profile_data.get("job_title") if c.base_profile_data else None,
@@ -220,24 +306,31 @@ async def get_generated_cv(
     if not cv_entity or cv_entity.user_id != user_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy CV mẫu này")
 
-    return GeneratedCVResponse(
-        id=cv_entity.id,
-        status=cv_entity.status,
-        target_jd_text=cv_entity.target_jd_text,
-        base_profile_data=cv_entity.base_profile_data,
-        generated_content=cv_entity.generated_content,
-        created_at=cv_entity.created_at
-    )
+    return _to_generated_cv_response(cv_entity)
 
 
-@router.get("/{cv_id}/export")
-async def export_generated_cv(
+@router.get("/{cv_id}/versions", response_model=List[GeneratedCVVersionResponse])
+async def list_generated_cv_versions(
     cv_id: UUID,
-    format: Literal["rich_text", "markdown", "docx", "text"] | None = Query(default=None),
     user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Export generated CV to text, markdown, or docx."""
+    cv_repo = GeneratedCVRepository(session)
+    cv_entity = await cv_repo.get_by_id(cv_id)
+    if not cv_entity or cv_entity.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy CV mẫu này")
+
+    versions = await cv_repo.list_versions(user_id, cv_entity.conversation_id)
+    return [_to_generated_cv_version_response(item) for item in versions]
+
+
+async def _download_generated_cv(
+    cv_id: UUID,
+    format: Literal["markdown", "docx"] | None = Query(default=None),
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Download generated CV as markdown or docx."""
     cv_repo = GeneratedCVRepository(session)
     cv_entity = await cv_repo.get_by_id(cv_id)
 
@@ -247,17 +340,11 @@ async def export_generated_cv(
     stored_format, stored_content = _get_generated_content_payload(cv_entity)
     content_data = cv_entity.generated_content if isinstance(cv_entity.generated_content, dict) else {}
     export_format = format or stored_format
-    if export_format == "text":
-        export_format = "rich_text"
 
-    if export_format not in {"rich_text", "markdown", "docx"}:
+    if export_format not in {"markdown", "docx"}:
         raise HTTPException(status_code=400, detail="Định dạng export không hợp lệ")
 
-    export_content = stored_content
-    if export_format in {"markdown", "docx"}:
-        export_content = content_data.get("markdown") or stored_content
-    elif export_format == "rich_text":
-        export_content = content_data.get("text") or stored_content
+    export_content = content_data.get("markdown") or stored_content
 
     if not str(export_content).strip():
         raise HTTPException(status_code=400, detail="CV không có nội dung để export")
@@ -279,12 +366,62 @@ async def export_generated_cv(
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
-    filename = _build_export_filename(cv_entity, "txt")
-    return Response(
-        content=str(export_content),
-        media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+
+@router.get("/{cv_id}/download")
+async def download_generated_cv(
+    cv_id: UUID,
+    format: Literal["markdown", "docx"] | None = Query(default=None),
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    return await _download_generated_cv(cv_id, format, user_id, session)
+
+
+@router.get("/{cv_id}/export")
+async def export_generated_cv(
+    cv_id: UUID,
+    format: Literal["markdown", "docx"] | None = Query(default=None),
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    return await _download_generated_cv(cv_id, format, user_id, session)
+
+
+@router.post("/{cv_id}/versions", response_model=GeneratedCVResponse)
+async def create_generated_cv_version(
+    cv_id: UUID,
+    req: GeneratedCVUpdateRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Create a new immutable version after user edits in preview."""
+    cv_repo = GeneratedCVRepository(session)
+    cv_entity = await cv_repo.get_by_id(cv_id)
+
+    if not cv_entity or cv_entity.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy CV mẫu này")
+
+    next_version = await cv_repo.get_next_version(user_id, cv_entity.conversation_id)
+    existing_payload = cv_entity.generated_content if isinstance(cv_entity.generated_content, dict) else {}
+    new_entity = cv_entity.__class__(
+        user_id=user_id,
+        conversation_id=cv_entity.conversation_id,
+        version=next_version,
+        parent_version_id=cv_entity.id,
+        target_jd_text=cv_entity.target_jd_text,
+        base_profile_data=cv_entity.base_profile_data,
+        generated_content={
+            **existing_payload,
+            "format": req.output_format,
+            "content": req.content,
+            "markdown": req.content,
+        },
+        status=cv_entity.status,
     )
+    await cv_repo.create(new_entity)
+
+    await session.commit()
+    return _to_generated_cv_response(new_entity)
 
 
 @router.patch("/{cv_id}", response_model=GeneratedCVResponse)
@@ -294,43 +431,7 @@ async def update_generated_cv(
     user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Update generated CV content after user edits in preview."""
-    cv_repo = GeneratedCVRepository(session)
-    cv_entity = await cv_repo.get_by_id(cv_id)
-
-    if not cv_entity or cv_entity.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Không tìm thấy CV mẫu này")
-
-    existing_payload = cv_entity.generated_content if isinstance(cv_entity.generated_content, dict) else {}
-    updated_payload = dict(existing_payload)
-    updated_payload["format"] = req.output_format
-    updated_payload["content"] = req.content
-
-    if req.output_format in {"markdown", "docx"}:
-        updated_payload["markdown"] = req.content
-        updated_payload.pop("text", None)
-    else:
-        updated_payload["text"] = req.content
-        updated_payload.pop("markdown", None)
-
-    updated = await cv_repo.update_generated_content(
-        cv_id=cv_id,
-        user_id=user_id,
-        generated_content=updated_payload,
-    )
-    if not updated:
-        await session.rollback()
-        raise HTTPException(status_code=404, detail="Không tìm thấy CV mẫu này")
-
-    await session.commit()
-    return GeneratedCVResponse(
-        id=updated.id,
-        status=updated.status,
-        target_jd_text=updated.target_jd_text,
-        base_profile_data=updated.base_profile_data,
-        generated_content=updated.generated_content,
-        created_at=updated.created_at,
-    )
+    return await create_generated_cv_version(cv_id, req, user_id, session)
 
 @router.delete("/{cv_id}", status_code=204)
 async def delete_generated_cv(
