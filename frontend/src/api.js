@@ -47,7 +47,10 @@ api.interceptors.response.use(
 // Auth
 export const register = (data) => api.post('/auth/register', data);
 export const login = (data) => api.post('/auth/login', data);
+export const forgotPassword = (data) => api.post('/auth/forgot-password', data);
+export const resetPassword = (data) => api.post('/auth/reset-password', data);
 export const getCurrentUserProfile = () => api.get('/auth/me');
+export const updateCurrentUserProfile = (data) => api.put('/auth/me', data);
 
 // Analysis
 export const createAnalysis = (formData) =>
@@ -64,6 +67,10 @@ export const deleteAnalysis = (id) => api.delete(`/analysis/${id}`);
 
 // Generated CV
 export const createGeneratedCV = (data) => api.post('/generated-cvs/', data);
+export const importGeneratedCV = (formData) =>
+  api.post('/generated-cvs/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
 export const listGeneratedCVs = (limit = 20, offset = 0) => api.get(`/generated-cvs/?limit=${limit}&offset=${offset}`);
 export const getGeneratedCV = (id) => api.get(`/generated-cvs/${id}`);
 export const getGeneratedCVVersions = (id) => api.get(`/generated-cvs/${id}/versions`);

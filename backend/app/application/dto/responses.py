@@ -10,6 +10,16 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class MessageResponse(BaseModel):
+    message: str
+
+
+class ForgotPasswordResponse(MessageResponse):
+    email_sent: bool = False
+    debug_reset_url: Optional[str] = None
+    debug_reset_token: Optional[str] = None
+
+
 class UserResponse(BaseModel):
     id: UUID
     email: str

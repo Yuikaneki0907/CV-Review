@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, String, Text, Float, DateTime, ForeignKey, Integer
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -22,6 +22,24 @@ class UserModel(Base):
     updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
 
     analyses = relationship("AnalysisModel", back_populates="user", lazy="selectin")
+    password_reset_tokens = relationship(
+        "PasswordResetTokenModel",
+        back_populates="user",
+        lazy="selectin",
+    )
+
+
+class PasswordResetTokenModel(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(128), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("UserModel", back_populates="password_reset_tokens")
 
 
 class AnalysisModel(Base):
@@ -71,6 +89,16 @@ class AnalysisModel(Base):
 
 class CVFileModel(Base):
     __tablename__ = "cv_files"
+    __table_args__ = (
+        Index(
+            "ux_cv_files_user_filename_version_active",
+            "user_id",
+            "original_filename",
+            "version",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
@@ -79,8 +107,8 @@ class CVFileModel(Base):
     original_filename = Column(String(255), nullable=False)
     storage_key = Column(String(512), nullable=False, unique=True)
     content_type = Column(String(100), default="application/octet-stream")
-    file_size = Column(Float, default=0)
-    version = Column(Float, default=1)
+    file_size = Column(Integer, default=0)
+    version = Column(Integer, default=1)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     deleted_at = Column(DateTime, nullable=True)
@@ -91,6 +119,16 @@ class CVFileModel(Base):
 
 class GeneratedCVModel(Base):
     __tablename__ = "generated_cvs"
+    __table_args__ = (
+        Index(
+            "ux_generated_cvs_user_conversation_version_active",
+            "user_id",
+            "conversation_id",
+            "version",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)

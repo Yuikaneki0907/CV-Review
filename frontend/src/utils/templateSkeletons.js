@@ -4,8 +4,8 @@
  */
 
 export const TEMPLATE_SKELETONS = {
-    ats_clean: `# [HỌ VÀ TÊN]
-[Chức danh] | [Email] | [Số điện thoại] | [LinkedIn]
+    ats_clean: `# NGUYEN VAN A
+Software Engineer | name@email.com | 0900 000 000 | linkedin.com/in/nguyenvana
 
 ## PROFESSIONAL SUMMARY
 [2-3 câu tóm tắt kinh nghiệm, thế mạnh, và giá trị bạn mang lại]
@@ -40,8 +40,8 @@ export const TEMPLATE_SKELETONS = {
 - [Language]: [Proficiency level]
 `,
 
-    executive: `# [HỌ VÀ TÊN]
-[Title] | [Email] | [Phone] | [LinkedIn]
+    executive: `# TRAN THI B
+Director of Operations | tranb@email.com | 0900 000 001 | linkedin.com/in/tranthib
 
 ## EXECUTIVE SUMMARY
 [3-4 câu thể hiện tầm nhìn chiến lược, kết quả định lượng, năng lực lãnh đạo]
@@ -77,8 +77,8 @@ Strategic Impact:
 - [Role] at [Organization]
 `,
 
-    tech_engineer: `# [HỌ VÀ TÊN]
-[Title, e.g. Software Engineer] | [Email] | [Phone] | [GitHub] | [LinkedIn]
+    tech_engineer: `# LE VAN C
+Full-Stack Developer | levanc@email.com | 0900 000 002 | github.com/levanc | linkedin.com/in/levanc
 
 ## SUMMARY
 [2-3 câu: years of experience, chuyên môn chính, thành tựu nổi bật]
@@ -118,8 +118,8 @@ Strategic Impact:
 - [AWS / GCP / Azure certification]
 `,
 
-    fresh_graduate: `# [HỌ VÀ TÊN]
-[Vị trí ứng tuyển] | [Email] | [Số điện thoại] | [LinkedIn/Portfolio]
+    fresh_graduate: `# PHAM THI D
+Marketing Intern | phamd@email.com | 0900 000 003 | portfolio.example.com
 
 ## OBJECTIVE
 [2 câu: mục tiêu nghề nghiệp, điều bạn muốn đóng góp cho công ty]

@@ -48,12 +48,7 @@ class ChatCVUseCase:
         cv_content: str,
         output_format: str,
         current_cv: Optional[GeneratedCV] = None,
-    ) -> GeneratedCV:
-        next_version = (
-            await self.repo.get_next_version(user_id, current_cv.conversation_id)
-            if current_cv
-            else 1
-        )
+    ) -> GeneratedCV | dict:
         clean_reply = reply_text.strip() or "*(Đã tạo CV thành công)*"
         generated_payload = {
             "format": output_format,
@@ -61,20 +56,22 @@ class ChatCVUseCase:
             "markdown": cv_content,
             "chat_history": messages + [{"role": "assistant", "content": clean_reply}],
         }
-        entity_kwargs = {
-            "user_id": user_id,
-            "version": next_version,
-            "target_jd_text": current_cv.target_jd_text if current_cv else "Được cung cấp qua chat",
-            "base_profile_data": current_cv.base_profile_data if current_cv else {"level": "Unknown", "job_title": "CV Từ Chatbot"},
-            "generated_content": generated_payload,
-            "status": "completed",
-        }
         if current_cv:
-            entity_kwargs["conversation_id"] = current_cv.conversation_id
-            entity_kwargs["parent_version_id"] = current_cv.id
+            return {
+                "target_jd_text": current_cv.target_jd_text,
+                "base_profile_data": current_cv.base_profile_data,
+                "generated_content": generated_payload,
+                "status": "completed",
+            }
 
-        cv_entity = GeneratedCV(**entity_kwargs)
-        return cv_entity
+        return GeneratedCV(
+            user_id=user_id,
+            version=1,
+            target_jd_text="Được cung cấp qua chat",
+            base_profile_data={"level": "Unknown", "job_title": "CV Từ Chatbot"},
+            generated_content=generated_payload,
+            status="completed",
+        )
 
     async def execute(
         self,
@@ -139,7 +136,7 @@ class ChatCVUseCase:
             # Clean the tag from the reply so the user doesn't see it raw if we just render it or save it to history
             clean_reply = re.sub(r"<FINAL_CV>.*?</FINAL_CV>", "\n\n*(Đã tạo CV thành công)*", ai_reply, flags=re.DOTALL | re.IGNORECASE)
 
-            cv_entity = await self._build_generated_cv(
+            built_payload = await self._build_generated_cv(
                 user_id=user_id,
                 messages=messages,
                 reply_text=clean_reply.strip(),
@@ -147,7 +144,19 @@ class ChatCVUseCase:
                 output_format=output_format,
                 current_cv=current_cv,
             )
-            await self.repo.create(cv_entity)
+            if current_cv:
+                cv_entity = await self.repo.create_versioned(
+                    user_id=user_id,
+                    conversation_id=current_cv.conversation_id,
+                    parent_version_id=current_cv.id,
+                    target_jd_text=built_payload["target_jd_text"],
+                    base_profile_data=built_payload["base_profile_data"],
+                    generated_content=built_payload["generated_content"],
+                    status=built_payload["status"],
+                )
+            else:
+                cv_entity = built_payload
+                await self.repo.create(cv_entity)
             cv_id = cv_entity.id
             
             ai_reply = clean_reply
@@ -217,7 +226,7 @@ class ChatCVUseCase:
             if not clean_reply:
                 clean_reply = "*(Đã tạo CV thành công)*"
 
-            cv_entity = await self._build_generated_cv(
+            built_payload = await self._build_generated_cv(
                 user_id=user_id,
                 messages=messages,
                 reply_text=clean_reply,
@@ -225,7 +234,19 @@ class ChatCVUseCase:
                 output_format=output_format,
                 current_cv=current_cv,
             )
-            await self.repo.create(cv_entity)
+            if current_cv:
+                cv_entity = await self.repo.create_versioned(
+                    user_id=user_id,
+                    conversation_id=current_cv.conversation_id,
+                    parent_version_id=current_cv.id,
+                    target_jd_text=built_payload["target_jd_text"],
+                    base_profile_data=built_payload["base_profile_data"],
+                    generated_content=built_payload["generated_content"],
+                    status=built_payload["status"],
+                )
+            else:
+                cv_entity = built_payload
+                await self.repo.create(cv_entity)
             return cv_entity.id
 
         stream = self.ai.chat_interaction_stream(chat_messages)

@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import and_, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities.generated_cv import GeneratedCV
@@ -32,6 +33,38 @@ class GeneratedCVRepository(IGeneratedCVRepository):
         self._session.add(db_model)
         await self._session.flush()
         return cv
+
+    async def create_versioned(
+        self,
+        *,
+        user_id: UUID,
+        conversation_id: UUID,
+        parent_version_id: UUID,
+        target_jd_text: Optional[str],
+        base_profile_data: Optional[dict],
+        generated_content: dict,
+        status: str,
+    ) -> GeneratedCV:
+        for _ in range(5):
+            next_version = await self.get_next_version(user_id, conversation_id)
+            cv = GeneratedCV(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                version=next_version,
+                parent_version_id=parent_version_id,
+                target_jd_text=target_jd_text,
+                base_profile_data=base_profile_data,
+                generated_content=generated_content,
+                status=status,
+            )
+            try:
+                async with self._session.begin_nested():
+                    await self.create(cv)
+                return cv
+            except IntegrityError:
+                continue
+
+        raise RuntimeError("Không thể tạo phiên bản CV mới do xung đột phiên bản liên tiếp")
 
     async def get_by_id(self, cv_id: UUID) -> Optional[GeneratedCV]:
         result = await self._session.execute(

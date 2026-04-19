@@ -15,7 +15,34 @@ const markdownToHtml = (markdown) => {
   return typeof parsed === 'string' && parsed.trim() ? parsed : '<p></p>';
 };
 
-const valueToEditorHtml = (value) => markdownToHtml(value);
+const sanitizeHtml = (rawHtml) => {
+  if (!rawHtml || typeof rawHtml !== 'string') return '<p></p>';
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(rawHtml, 'text/html');
+
+  doc.querySelectorAll('script, style, iframe, object, embed, link, meta').forEach((node) => {
+    node.remove();
+  });
+
+  doc.querySelectorAll('*').forEach((element) => {
+    Array.from(element.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value || '';
+      if (name.startsWith('on') || name === 'srcdoc') {
+        element.removeAttribute(attr.name);
+        return;
+      }
+      if ((name === 'href' || name === 'src') && value.trim().toLowerCase().startsWith('javascript:')) {
+        element.removeAttribute(attr.name);
+      }
+    });
+  });
+
+  return doc.body.innerHTML?.trim() || '<p></p>';
+};
+
+const valueToEditorHtml = (value, valueFormat) =>
+  valueFormat === 'html' ? sanitizeHtml(value) : markdownToHtml(value);
 
 const editorToValue = (editor) =>
   turndown.turndown(editor.getHTML()).replace(/\n{3,}/g, '\n\n').trim();
@@ -45,10 +72,11 @@ function ToolbarButton({ active = false, disabled = false, onClick, title, child
 export default function CvWysiwygEditor({
   value = '',
   format = 'markdown',
+  valueFormat = 'markdown',
   onChange,
   readOnly = false,
 }) {
-  const initialContent = useMemo(() => valueToEditorHtml(value), [value]);
+  const initialContent = useMemo(() => valueToEditorHtml(value, valueFormat), [value, valueFormat]);
 
   const editor = useEditor({
     extensions: [
@@ -62,18 +90,21 @@ export default function CvWysiwygEditor({
     editable: !readOnly,
     onUpdate: ({ editor: instance }) => {
       if (!onChange) return;
-      onChange(editorToValue(instance));
+      onChange({
+        markdown: editorToValue(instance),
+        html: instance.getHTML(),
+      });
     },
   });
 
   useEffect(() => {
     if (!editor) return;
-    const nextContent = valueToEditorHtml(value);
+    const nextContent = valueToEditorHtml(value, valueFormat);
     if (editor.isFocused) return;
     if (editor.getHTML() !== nextContent) {
       editor.commands.setContent(nextContent, false);
     }
-  }, [editor, value]);
+  }, [editor, value, valueFormat]);
 
   useEffect(() => {
     if (!editor) return;

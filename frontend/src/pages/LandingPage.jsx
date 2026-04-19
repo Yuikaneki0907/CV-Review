@@ -3,7 +3,7 @@ import { useAuth } from '../AuthContext';
 
 export default function LandingPage() {
     const { token } = useAuth();
-    if (token) return <Navigate to="/upload" replace />;
+    if (token) return <Navigate to="/generate-cv" replace />;
 
     return (
         <div className="landing-page">

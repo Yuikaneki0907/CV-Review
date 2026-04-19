@@ -3,6 +3,7 @@ import time
 from typing import Dict, List
 
 from google import genai
+from google.genai import types
 
 from app.config import get_settings
 from app.application.interfaces.ai_service import IAIService
@@ -19,7 +20,47 @@ class GeminiService(IAIService):
         self._client = genai.Client(api_key=settings.GEMINI_API_KEY)
         self._gen_model = settings.GEMINI_GEN_MODEL
         self._embed_model = settings.GEMINI_EMBED_MODEL
+        self._fallback_gen_models = [
+            model
+            for model in (
+                self._gen_model,
+                "gemini-2.5-flash-lite",
+                "gemini-2.0-flash",
+                "gemini-flash-latest",
+            )
+            if model
+        ]
         logger.info("GeminiService initialized (gen=%s, embed=%s)", self._gen_model, self._embed_model)
+
+    def _generate_content(self, prompt: str, *, json_mode: bool = False):
+        config = None
+        if json_mode:
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.2,
+            )
+
+        last_error = None
+        for model in self._fallback_gen_models:
+            try:
+                return self._client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=config,
+                )
+            except Exception as exc:
+                last_error = exc
+                error_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+                if error_code in {429, 503}:
+                    logger.warning(
+                        "Gemini model unavailable or rate-limited, retrying with fallback: %s",
+                        model,
+                    )
+                    continue
+                raise
+
+        assert last_error is not None
+        raise last_error
 
     async def extract_cv_info(self, cv_text: str) -> Dict:
         prompt = f"""Analyze this CV/Resume and extract structured information in JSON format.
@@ -96,10 +137,7 @@ Return the rewritten CV as plain text, maintaining the original format."""
         logger.info("rewrite_cv: prompt_len=%d, missing_skills=%d", len(prompt), len(missing))
         start = time.perf_counter()
 
-        response = self._client.models.generate_content(
-            model=self._gen_model,
-            contents=prompt,
-        )
+        response = self._generate_content(prompt)
 
         duration = (time.perf_counter() - start) * 1000
         logger.info("rewrite_cv: response_len=%d chars, duration=%.0fms",
@@ -159,10 +197,7 @@ Return ONLY valid JSON."""
     async def _generate_json(self, prompt: str, expect_list: bool = False):
         start = time.perf_counter()
 
-        response = self._client.models.generate_content(
-            model=self._gen_model,
-            contents=prompt,
-        )
+        response = self._generate_content(prompt, json_mode=True)
 
         duration = (time.perf_counter() - start) * 1000
         text = response.text.strip()
@@ -275,10 +310,7 @@ Return ONLY valid JSON."""
         - Chỉ trả về nội dung CV, không thêm giải thích.
         """
 
-        response = self._client.models.generate_content(
-            model=self._gen_model,
-            contents=prompt,
-        )
+        response = self._generate_content(prompt)
         return (response.text or "").strip()
 
     async def chat_interaction(self, messages: List[Dict[str, str]]) -> str:
@@ -291,10 +323,7 @@ Return ONLY valid JSON."""
         prompt = "\n\n".join(prompt_parts)
         
         start = time.perf_counter()
-        response = self._client.models.generate_content(
-            model=self._gen_model,
-            contents=prompt,
-        )
+        response = self._generate_content(prompt)
         duration = (time.perf_counter() - start) * 1000
         logger.info("chat_interaction: response_len=%d chars, duration=%.0fms", len(response.text), duration)
         return response.text

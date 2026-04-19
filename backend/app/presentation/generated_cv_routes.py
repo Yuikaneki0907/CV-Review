@@ -1,13 +1,17 @@
 import io
+import os
 import re
+import tempfile
+import traceback
 from typing import List, Literal
 from uuid import UUID
 
 from docx import Document
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.application.dto.requests import GenerateCVRequest, ChatContextRequest, GeneratedCVUpdateRequest
 from app.application.dto.responses import (
     ChatContextResponse,
@@ -17,10 +21,17 @@ from app.application.dto.responses import (
 )
 from app.application.use_cases.edit_generated_cv import EditGeneratedCVUseCase
 from app.application.use_cases.generate_cv import GenerateCVUseCase
+from app.application.use_cases.import_generated_cv import ImportGeneratedCVUseCase
 from app.application.use_cases.chat_cv import ChatCVUseCase
 from app.infrastructure.ai import ai_service_factory
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.generated_cv_repository import GeneratedCVRepository
+from app.infrastructure.file_parsers.parsers import get_parser
+from app.infrastructure.file_parsers.import_pipeline import (
+    build_import_preview_payload,
+    convert_pdf_to_docx,
+)
+from app.infrastructure.file_parsers.upload_validation import read_and_validate_upload
 from app.presentation.auth_routes import get_current_user_id
 from app.logger import get_logger
 
@@ -87,6 +98,54 @@ def _build_export_filename(cv_entity, ext: str) -> str:
     if not normalized:
         normalized = "generated_cv"
     return f"{normalized[:60]}.{ext}"
+
+
+async def _parse_uploaded_cv(file: UploadFile) -> dict[str, str]:
+    settings = get_settings()
+    file_bytes, upload_meta = await read_and_validate_upload(
+        file,
+        allowed_types={"pdf", "docx"},
+        max_size_mb=settings.MAX_FILE_SIZE_MB,
+        detail="Chỉ hỗ trợ file CV định dạng PDF hoặc DOCX",
+    )
+    normalized_name = upload_meta.filename.lower()
+    ext = upload_meta.extension
+    tmp_path = None
+    converted_docx_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        if normalized_name.endswith(".pdf"):
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as converted:
+                converted_docx_path = converted.name
+            convert_pdf_to_docx(tmp_path, converted_docx_path)
+            preview_payload = build_import_preview_payload(converted_docx_path)
+        elif normalized_name.endswith(".docx"):
+            preview_payload = build_import_preview_payload(tmp_path)
+        else:
+            parser = get_parser(upload_meta.filename)
+            parsed_text = await parser.parse(tmp_path)
+            preview_payload = {
+                "markdown": parsed_text.strip(),
+                "html": "",
+            }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to import uploaded CV %s: %s\n%s", upload_meta.filename, str(exc), traceback.format_exc())
+        raise HTTPException(status_code=400, detail=f"Không đọc được file CV: {exc}")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        if converted_docx_path and os.path.exists(converted_docx_path):
+            os.remove(converted_docx_path)
+
+    if not preview_payload.get("markdown", "").strip():
+        raise HTTPException(status_code=400, detail="Không trích xuất được nội dung từ file CV")
+
+    return preview_payload
 
 
 def _to_generated_cv_response(cv_entity) -> GeneratedCVResponse:
@@ -267,6 +326,46 @@ async def generate_cv(
         raise HTTPException(status_code=500, detail="Lỗi khi AI tạo CV mẫu")
 
 
+@router.post("/import", response_model=GeneratedCVResponse, status_code=201)
+async def import_generated_cv(
+    cv_file: UploadFile = File(...),
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Import an existing CV file and open it in the editable workspace."""
+    cv_repo = GeneratedCVRepository(session)
+    use_case = ImportGeneratedCVUseCase(cv_repo)
+
+    logger.info(
+        "Import generated CV request: user_id=%s, filename=%s, content_type=%s",
+        user_id,
+        cv_file.filename,
+        cv_file.content_type,
+    )
+
+    try:
+        preview_payload = await _parse_uploaded_cv(cv_file)
+        cv_entity = await use_case.execute(
+            user_id=user_id,
+            filename=cv_file.filename or "uploaded_cv",
+            parsed_content=preview_payload["markdown"],
+            preview_html=preview_payload.get("html", ""),
+        )
+        await session.commit()
+        logger.info("Imported CV saved successfully: cv_id=%s, filename=%s", cv_entity.id, cv_file.filename)
+        return _to_generated_cv_response(cv_entity)
+    except HTTPException:
+        await session.rollback()
+        raise
+    except ValueError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        await session.rollback()
+        logger.error("Failed to import CV into workspace: %s", str(exc), exc_info=True)
+        raise HTTPException(status_code=500, detail="Không thể import CV vào workspace")
+
+
 @router.get("/", response_model=List[GeneratedCVListResponse])
 async def list_generated_cvs(
     limit: int = 20,
@@ -401,24 +500,26 @@ async def create_generated_cv_version(
     if not cv_entity or cv_entity.user_id != user_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy CV mẫu này")
 
-    next_version = await cv_repo.get_next_version(user_id, cv_entity.conversation_id)
     existing_payload = cv_entity.generated_content if isinstance(cv_entity.generated_content, dict) else {}
-    new_entity = cv_entity.__class__(
+    next_payload = {
+        key: value
+        for key, value in existing_payload.items()
+        if key not in {"html", "import_preview_format"}
+    }
+    new_entity = await cv_repo.create_versioned(
         user_id=user_id,
         conversation_id=cv_entity.conversation_id,
-        version=next_version,
         parent_version_id=cv_entity.id,
         target_jd_text=cv_entity.target_jd_text,
         base_profile_data=cv_entity.base_profile_data,
         generated_content={
-            **existing_payload,
+            **next_payload,
             "format": req.output_format,
             "content": req.content,
             "markdown": req.content,
         },
         status=cv_entity.status,
     )
-    await cv_repo.create(new_entity)
 
     await session.commit()
     return _to_generated_cv_response(new_entity)

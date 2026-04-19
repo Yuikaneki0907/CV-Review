@@ -1,23 +1,35 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../AuthContext';
-import { useNavigate, Link } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 
 export default function LoginPage() {
   const { loginUser } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (location.state?.email) {
+      setEmail(location.state.email);
+    }
+    if (location.state?.successMessage) {
+      setSuccessMessage(location.state.successMessage);
+    }
+  }, [location.state]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
     setLoading(true);
     try {
       await loginUser(email, password);
-      navigate('/upload');
+      navigate('/generate-cv');
     } catch (err) {
       setError(err.response?.data?.detail || 'Đăng nhập thất bại');
     } finally {
@@ -63,6 +75,7 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit}>
+            {successMessage && <div className="success-msg">{successMessage}</div>}
             {error && <div className="error-msg">{error}</div>}
 
             <div className="field">
@@ -78,10 +91,7 @@ export default function LoginPage() {
             </div>
 
             <div className="field">
-              <div className="field-row">
-                <label htmlFor="login-password">Mật khẩu</label>
-                <a href="#" className="field-link">Quên mật khẩu?</a>
-              </div>
+              <label htmlFor="login-password">Mật khẩu</label>
               <div className="password-wrapper">
                 <input
                   id="login-password"
@@ -101,6 +111,9 @@ export default function LoginPage() {
                   </span>
                 </button>
               </div>
+              <Link to="/forgot-password" className="field-link field-link-center">
+                Quên mật khẩu?
+              </Link>
             </div>
 
             <button type="submit" className="btn-primary" disabled={loading}>
@@ -114,7 +127,7 @@ export default function LoginPage() {
 
           <div className="auth-divider">
             <div className="line" />
-            <span>hoặc</span>
+            <span>Hoặc</span>
           </div>
 
           <p className="switch-link">

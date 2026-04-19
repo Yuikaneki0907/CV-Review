@@ -62,6 +62,18 @@ def run_analysis_task(self, analysis_id: str):
                     )
                 except Exception as e:
                     await session.rollback()
+                    try:
+                        analysis = await analysis_repo.get_by_id(UUID(analysis_id))
+                        if analysis:
+                            analysis.mark_failed()
+                            await analysis_repo.update(analysis)
+                            await session.commit()
+                    except Exception:
+                        await session.rollback()
+                        logger.exception(
+                            "Failed to persist failure status: analysis_id=%s",
+                            analysis_id,
+                        )
                     duration = (time.perf_counter() - start) * 1000
                     logger.error(
                         "Task FAILED: analysis_id=%s, duration=%.0fms, error=%s",

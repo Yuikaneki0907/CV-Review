@@ -83,9 +83,9 @@ export default function HistoryPage() {
         <div className="history-hero-content">
           <span className="history-eyebrow">Editorial Intelligence</span>
           <h2>Lịch sử phân tích</h2>
-          <p>Theo dõi tiến trình chấm CV, xem điểm và mở nhanh bản phân tích chi tiết.</p>
+          <p>Theo dõi tiến trình chấm CV, xem điểm và mở nhanh bản phân tích chi tiết. Lịch sử workspace và phiên bản CV được quản lý riêng trong thanh bên trái.</p>
         </div>
-        <Link to="/" className="history-new-btn">
+        <Link to="/generate-cv" state={{ mode: 'analyze' }} className="history-new-btn">
           + Phân tích mới
         </Link>
       </div>
@@ -136,7 +136,7 @@ export default function HistoryPage() {
             <path d="M11 15h2v2h-2zm0-8h2v6h-2zm1-5C5.925 2 1 6.925 1 13s4.925 11 11 11 11-4.925 11-11S18.075 2 12 2zm0 20c-4.962 0-9-4.037-9-9s4.038-9 9-9 9 4.037 9 9-4.038 9-9 9z" />
           </svg>
           <p>{error}</p>
-          <Link to="/" className="history-empty-cta">Tạo phân tích mới</Link>
+          <Link to="/generate-cv" state={{ mode: 'analyze' }} className="history-empty-cta">Tạo phân tích mới</Link>
         </div>
       ) : filteredAnalyses.length === 0 ? (
         <div className="history-empty-state">
@@ -144,7 +144,7 @@ export default function HistoryPage() {
             <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z" />
           </svg>
           <p>{analyses.length === 0 ? 'Chưa có kết quả phân tích nào' : 'Không có kết quả phù hợp bộ lọc hiện tại'}</p>
-          <Link to="/" className="history-empty-cta">Bắt đầu phân tích mới</Link>
+          <Link to="/generate-cv" state={{ mode: 'analyze' }} className="history-empty-cta">Bắt đầu phân tích mới</Link>
         </div>
       ) : (
         <div className="history-list">

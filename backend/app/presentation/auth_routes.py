@@ -4,11 +4,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.dto.requests import RegisterRequest, LoginRequest, UserUpdateRequest
-from app.application.dto.responses import TokenResponse, UserResponse
+from app.application.dto.requests import (
+    RegisterRequest,
+    LoginRequest,
+    UserUpdateRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+)
+from app.application.dto.responses import (
+    TokenResponse,
+    UserResponse,
+    ForgotPasswordResponse,
+    MessageResponse,
+)
 from app.application.use_cases.auth import AuthUseCase
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.user_repository import UserRepository
+from app.infrastructure.notifications.email_service import SMTPEmailService
 from app.presentation.dependencies import get_current_user_id
 from app.logger import get_logger
 
@@ -48,6 +60,44 @@ async def login(
         logger.warning("Login FAILED: email=%s, reason=%s", data.email, str(e))
         raise HTTPException(status_code=401, detail=str(e))
 
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_password(
+    data: ForgotPasswordRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
+    logger.info("Forgot password request: email=%s", data.email)
+    user_repo = UserRepository(session)
+    use_case = AuthUseCase(user_repo, SMTPEmailService())
+    try:
+        result = await use_case.request_password_reset(data.email)
+        logger.info(
+            "Forgot password accepted: email=%s, email_sent=%s",
+            data.email,
+            result.email_sent,
+        )
+        return ForgotPasswordResponse(**result.__dict__)
+    except RuntimeError as e:
+        logger.error("Forgot password unavailable: email=%s, reason=%s", data.email, str(e))
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+async def reset_password(
+    data: ResetPasswordRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
+    logger.info("Reset password attempt")
+    user_repo = UserRepository(session)
+    use_case = AuthUseCase(user_repo)
+    try:
+        result = await use_case.reset_password(data.token, data.new_password)
+        logger.info("Reset password SUCCESS")
+        return MessageResponse(message=result.message)
+    except ValueError as e:
+        logger.warning("Reset password FAILED: reason=%s", str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(
     user_id: UUID = Depends(get_current_user_id),
@@ -57,19 +107,7 @@ async def get_current_user_profile(
     user = await user_repo.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-
-    from app.infrastructure.database.models import UserModel
-    result = await session.execute(select(UserModel).where(UserModel.id == user_id))
-    db_user = result.scalar_one_or_none()
-    if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
-        
-    return UserResponse(
-        id=db_user.id,
-        email=db_user.email,
-        full_name=db_user.full_name,
-        phone_number=db_user.phone_number
-    )
+    return UserResponse.model_validate(user)
 
 @router.put("/me", response_model=UserResponse)
 async def update_current_user_profile(
@@ -85,14 +123,5 @@ async def update_current_user_profile(
     )
     if not updated_user:
         raise HTTPException(status_code=404, detail="User not found")
-
-    from app.infrastructure.database.models import UserModel
-    result = await session.execute(select(UserModel).where(UserModel.id == user_id))
-    db_user = result.scalar_one_or_none()
-    
-    return UserResponse(
-        id=db_user.id,
-        email=db_user.email,
-        full_name=db_user.full_name,
-        phone_number=db_user.phone_number
-    )
+    await session.commit()
+    return UserResponse.model_validate(updated_user)

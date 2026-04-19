@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { SparklesIcon } from '@heroicons/react/24/outline';
+import { ArrowUpTrayIcon, DocumentMagnifyingGlassIcon, DocumentPlusIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid';
-import { streamChatAnalysis } from '../api';
+import { importGeneratedCV, streamChatAnalysis } from '../api';
+import { notifyGeneratedCvHistoryChanged } from '../utils/generatedCvHistory';
 import {
   getInterviewQuestionNote,
   getJdEvaluationAdvice,
@@ -12,12 +13,69 @@ import {
 } from '../utils/analysisInsights';
 import { TEMPLATE_SKELETONS } from '../utils/templateSkeletons';
 
+const TEMPLATE_CARDS = [
+  { id: 'ats_clean', label: 'ATS-Friendly', accent: 'blue' },
+  { id: 'executive', label: 'Executive / Senior', accent: 'navy' },
+  { id: 'tech_engineer', label: 'Tech / Engineer', accent: 'tech' },
+  { id: 'fresh_graduate', label: 'Fresh Graduate', accent: 'orange' },
+];
+
+const parseTemplatePreview = (templateId) => {
+  const content = TEMPLATE_SKELETONS[templateId] || '';
+  const lines = content.split('\n').map((line) => line.trim()).filter(Boolean);
+  const titleIndex = lines.findIndex((line) => line.startsWith('# '));
+  const name = titleIndex >= 0 ? lines[titleIndex].replace(/^#\s+/, '') : 'Template CV';
+  const subtitle = titleIndex >= 0 && lines[titleIndex + 1] && !lines[titleIndex + 1].startsWith('#')
+    ? lines[titleIndex + 1]
+    : '';
+  const sections = lines
+    .filter((line) => line.startsWith('## '))
+    .map((line) => line.replace(/^##\s+/, ''))
+    .slice(0, 5);
+
+  return { name, subtitle, sections };
+};
+
+function TemplatePreviewCard({ template, onClick }) {
+  const preview = parseTemplatePreview(template.id);
+  const centered = template.accent === 'orange' || template.accent === 'blue';
+  const sectionClass = template.accent === 'orange' ? 'tpl-m-h orange' : 'tpl-m-h';
+
+  return (
+    <button className="tpl-preview-card" onClick={() => onClick(template.id)}>
+      <div className={`tpl-page tpl-template-preview tpl-preview-${template.accent}`}>
+        {template.accent === 'navy' && <div className="tpl-m-bar navy" />}
+        {template.accent === 'tech' && <div className="tpl-m-bar tech" />}
+        <div className={`tpl-m-name ${centered ? 'center' : ''}`}>{preview.name}</div>
+        {preview.subtitle && <div className={`tpl-m-sub ${centered ? 'center' : ''}`}>{preview.subtitle}</div>}
+        <div className={`tpl-m-hr ${template.accent === 'orange' ? 'accent' : ''}`} />
+        {preview.sections.map((section, index) => (
+          <div key={section} className="tpl-section-preview">
+            <div className={sectionClass}>{section}</div>
+            {index < 3 ? (
+              <>
+                <div className={`tpl-m-line ${index % 2 === 0 ? 'w85' : 'w75'}`} />
+                <div className={`tpl-m-line ${index % 2 === 0 ? 'w65' : 'w55'}`} />
+              </>
+            ) : (
+              <div className="tpl-m-line w70" />
+            )}
+          </div>
+        ))}
+      </div>
+      <span className="tpl-card-name">{template.label}</span>
+    </button>
+  );
+}
+
 export default function GenerateCVPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState('');
   const [mode, setMode] = useState('create');
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const importFileRef = useRef(null);
 
   // Analysis state
   const [cvFile, setCvFile] = useState(null);
@@ -41,21 +99,20 @@ export default function GenerateCVPage() {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!prompt.trim()) return;
-    navigate('/workspace', { state: { initialPrompt: prompt, templateId: selectedTemplate } });
+    navigate('/workspace', { state: { initialPrompt: prompt } });
   };
 
   const handleTemplateClick = (templateId) => {
-    const labels = {
-      ats_clean: 'Tạo CV ATS-Friendly cho tôi',
-      executive: 'Tạo CV Executive/Senior cho tôi',
-      tech_engineer: 'Tạo CV Software Engineer cho tôi',
-      fresh_graduate: 'Tạo CV Fresh Graduate cho tôi',
+    const templateTitles = {
+      ats_clean: 'ATS-Friendly',
+      executive: 'Executive / Senior',
+      tech_engineer: 'Tech / Engineer',
+      fresh_graduate: 'Fresh Graduate',
     };
-    navigate('/workspace', {
+    navigate(`/workspace?template=${templateId}`, {
       state: {
-        initialPrompt: labels[templateId],
         templateId,
-        templateContent: TEMPLATE_SKELETONS[templateId] || '',
+        templateTitle: templateTitles[templateId] || 'Template CV',
       },
     });
   };
@@ -89,151 +146,129 @@ export default function GenerateCVPage() {
     }
   };
 
+  const handleImportCv = async (file) => {
+    if (!file || importing) return;
+
+    setImportError('');
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append('cv_file', file);
+      const res = await importGeneratedCV(formData);
+      notifyGeneratedCvHistoryChanged();
+      navigate(`/workspace/${res.data.id}`);
+    } catch (error) {
+      console.error('Failed to import CV into workspace:', error);
+      setImportError(error.response?.data?.detail || 'Không thể import CV vào workspace');
+    } finally {
+      if (importFileRef.current) {
+        importFileRef.current.value = '';
+      }
+      setImporting(false);
+    }
+  };
+
   const STEP_KEYS = ['extract', 'score', 'rewrite', 'truthcheck', 'insights', 'diff'];
+
+  const ModeTitleIcon = mode === 'create' ? DocumentPlusIcon : DocumentMagnifyingGlassIcon;
 
   return (
     <div className="prompter-page fade-in">
-      <div className="prompter-container" style={{ maxWidth: mode === 'analyze' ? '860px' : '900px' }}>
+      <div className="prompter-container">
         <div className="prompter-header">
           <div className="ai-badge">
             <SparklesIcon className="badge-icon" />
             <span>AI Resume Builder</span>
           </div>
           <h1 className="prompter-title">
-            {mode === 'create' ? 'Khởi tạo CV Chuyên Nghiệp' : '🔬 Phân tích CV'}
+            <ModeTitleIcon className="prompter-title-icon" />
+            <span>{mode === 'create' ? 'Tạo CV mới' : 'Phân tích CV'}</span>
           </h1>
           <p className="prompter-subtitle">
             {mode === 'create'
-              ? 'Mô tả vị trí bạn muốn ứng tuyển hoặc chọn một mẫu CV bên dưới.'
+              ? 'Nhập prompt để bắt đầu từ blank document, hoặc chọn template hay upload CV có sẵn ở bên dưới.'
               : 'Upload CV và thêm Job Description bằng text hoặc file để AI phân tích, chấm điểm và tối ưu.'}
           </p>
         </div>
 
         {/* Mode Toggle */}
         <div className="prompter-mode-toggle">
-          <button className={`mode-tab ${mode === 'create' ? 'active' : ''}`} onClick={() => setMode('create')}>
-            ✨ Tạo CV mới
+          <button type="button" className={`mode-tab ${mode === 'create' ? 'active' : ''}`} onClick={() => setMode('create')}>
+            <DocumentPlusIcon className="mode-tab-icon" />
+            <span>Tạo CV mới</span>
           </button>
-          <button className={`mode-tab ${mode === 'analyze' ? 'active' : ''}`} onClick={() => setMode('analyze')}>
-            📎 Phân tích CV
+          <button type="button" className={`mode-tab ${mode === 'analyze' ? 'active' : ''}`} onClick={() => setMode('analyze')}>
+            <DocumentMagnifyingGlassIcon className="mode-tab-icon" />
+            <span>Phân tích CV</span>
           </button>
         </div>
 
         {/* ═══ CREATE MODE ═══ */}
         {mode === 'create' && (
           <>
-            <form className="prompter-form" onSubmit={handleSubmit}>
-              <div className="prompter-input-wrapper">
-                <input
-                  type="text"
-                  className="prompter-input"
-                  placeholder="Mô tả CV bạn muốn tạo (VD: Senior Frontend Developer 5 năm kinh nghiệm React)..."
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  autoFocus
-                />
-                <button type="submit" className={`prompter-submit-btn ${prompt.trim() ? 'active' : ''}`} disabled={!prompt.trim()}>
-                  <PaperAirplaneIcon className="submit-icon" />
-                </button>
-              </div>
-            </form>
+            {importError && <div className="analyze-error">{importError}</div>}
+            <div className="prompter-create-stack">
+              <form className="prompter-form" onSubmit={handleSubmit}>
+                <div className="prompter-input-wrapper">
+                  <input
+                    type="text"
+                    className="prompter-input"
+                    placeholder="Mô tả CV bạn muốn tạo (VD: Senior Frontend Developer 5 năm kinh nghiệm React)..."
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    autoFocus
+                  />
+                  <button type="submit" className={`prompter-submit-btn ${prompt.trim() ? 'active' : ''}`} disabled={!prompt.trim()}>
+                    <PaperAirplaneIcon className="submit-icon" />
+                  </button>
+                </div>
+              </form>
+              <p className="prompter-helper-text">
+                Ô nhập phía trên là luồng tạo CV mới từ trắng. Nếu đã có CV sẵn, dùng thẻ upload ở ngay bên dưới để mở vào workspace và chỉnh sửa tiếp.
+              </p>
 
-            {/* ── Template Gallery ── */}
-            <div className="tpl-gallery">
-              <div className="tpl-gallery-grid">
-                {/* Blank */}
-                <button className="tpl-preview-card" onClick={() => { setSelectedTemplate(null); }}>
-                  <div className="tpl-page blank">
-                    <span className="tpl-blank-plus">+</span>
-                  </div>
-                  <span className="tpl-card-name">Blank document</span>
-                </button>
-
-                {/* ATS-Friendly */}
-                <button className="tpl-preview-card" onClick={() => handleTemplateClick('ats_clean')}>
-                  <div className="tpl-page">
-                    <div className="tpl-m-name">NGUYEN VAN A</div>
-                    <div className="tpl-m-sub">Software Engineer</div>
-                    <div className="tpl-m-hr"></div>
-                    <div className="tpl-m-h">PROFESSIONAL SUMMARY</div>
-                    <div className="tpl-m-line w80"></div>
-                    <div className="tpl-m-line w65"></div>
-                    <div className="tpl-m-h">EXPERIENCE</div>
-                    <div className="tpl-m-line w90"></div>
-                    <div className="tpl-m-line w70"></div>
-                    <div className="tpl-m-line w55"></div>
-                    <div className="tpl-m-h">EDUCATION</div>
-                    <div className="tpl-m-line w75"></div>
-                    <div className="tpl-m-h">SKILLS</div>
-                    <div className="tpl-m-line w85"></div>
-                  </div>
-                  <span className="tpl-card-name">ATS-Friendly</span>
-                </button>
-
-                {/* Executive */}
-                <button className="tpl-preview-card" onClick={() => handleTemplateClick('executive')}>
-                  <div className="tpl-page">
-                    <div className="tpl-m-bar navy"></div>
-                    <div className="tpl-m-name" style={{ marginTop: '2px' }}>TRAN THI B</div>
-                    <div className="tpl-m-sub">Director of Operations</div>
-                    <div className="tpl-m-h">EXECUTIVE SUMMARY</div>
-                    <div className="tpl-m-line w85"></div>
-                    <div className="tpl-m-line w70"></div>
-                    <div className="tpl-m-h">KEY ACHIEVEMENTS</div>
-                    <div className="tpl-m-bullet w80"></div>
-                    <div className="tpl-m-bullet w65"></div>
-                    <div className="tpl-m-bullet w75"></div>
-                    <div className="tpl-m-h">EXPERIENCE</div>
-                    <div className="tpl-m-line w90"></div>
-                    <div className="tpl-m-line w60"></div>
-                  </div>
-                  <span className="tpl-card-name">Executive / Senior</span>
-                </button>
-
-                {/* Tech */}
-                <button className="tpl-preview-card" onClick={() => handleTemplateClick('tech_engineer')}>
-                  <div className="tpl-page with-sidebar">
-                    <div className="tpl-m-sidebar">
-                      <div className="tpl-m-sh">SKILLS</div>
-                      <div className="tpl-m-sline"></div>
-                      <div className="tpl-m-sline short"></div>
-                      <div className="tpl-m-sline"></div>
-                      <div className="tpl-m-sh">TOOLS</div>
-                      <div className="tpl-m-sline short"></div>
-                      <div className="tpl-m-sline"></div>
+              {/* ── Template Gallery ── */}
+              <div className="tpl-gallery">
+                <div className="tpl-gallery-grid">
+                  <button
+                    className="tpl-preview-card"
+                    onClick={() => importFileRef.current?.click()}
+                    disabled={importing}
+                  >
+                    <input
+                      ref={importFileRef}
+                      type="file"
+                      accept=".pdf,.docx"
+                      hidden
+                      onChange={(e) => handleImportCv(e.target.files[0])}
+                    />
+                    <div className="tpl-page import-card">
+                      <div className="tpl-import-icon-wrap">
+                        <ArrowUpTrayIcon className="tpl-import-icon" />
+                      </div>
+                      <div className="tpl-import-title">
+                        {importing ? 'Đang import...' : 'Upload CV để sửa'}
+                      </div>
+                      <div className="tpl-import-subtitle">
+                        {importing ? 'Đang trích xuất nội dung và mở workspace' : 'PDF hoặc DOCX'}
+                      </div>
+                      <div className="tpl-import-steps">
+                        <span>Import</span>
+                        <span>Edit</span>
+                        <span>Version</span>
+                      </div>
                     </div>
-                    <div className="tpl-m-main">
-                      <div className="tpl-m-name">LE VAN C</div>
-                      <div className="tpl-m-sub">Full-Stack Developer</div>
-                      <div className="tpl-m-h">EXPERIENCE</div>
-                      <div className="tpl-m-line w85"></div>
-                      <div className="tpl-m-line w70"></div>
-                      <div className="tpl-m-h">PROJECTS</div>
-                      <div className="tpl-m-line w80"></div>
-                      <div className="tpl-m-line w55"></div>
-                    </div>
-                  </div>
-                  <span className="tpl-card-name">Tech / Engineer</span>
-                </button>
+                    <span className="tpl-card-name">Upload CV để sửa</span>
+                  </button>
 
-                {/* Fresh Graduate */}
-                <button className="tpl-preview-card" onClick={() => handleTemplateClick('fresh_graduate')}>
-                  <div className="tpl-page">
-                    <div className="tpl-m-name center">PHAM THI D</div>
-                    <div className="tpl-m-sub center">Marketing Intern</div>
-                    <div className="tpl-m-hr accent"></div>
-                    <div className="tpl-m-h orange">OBJECTIVE</div>
-                    <div className="tpl-m-line w80"></div>
-                    <div className="tpl-m-h orange">EDUCATION</div>
-                    <div className="tpl-m-line w75"></div>
-                    <div className="tpl-m-line w55"></div>
-                    <div className="tpl-m-h orange">PROJECTS</div>
-                    <div className="tpl-m-line w85"></div>
-                    <div className="tpl-m-h orange">ACTIVITIES</div>
-                    <div className="tpl-m-line w70"></div>
-                  </div>
-                  <span className="tpl-card-name">Fresh Graduate</span>
-                </button>
+                  {TEMPLATE_CARDS.map((template) => (
+                    <TemplatePreviewCard
+                      key={template.id}
+                      template={template}
+                      onClick={handleTemplateClick}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </>
@@ -293,7 +328,7 @@ export default function GenerateCVPage() {
                     <input
                       ref={jdFileRef}
                       type="file"
-                      accept=".pdf,.docx"
+                      accept=".pdf,.docx,.txt,.md"
                       onChange={(e) => setJdFile(e.target.files[0])}
                       hidden
                     />
@@ -307,7 +342,7 @@ export default function GenerateCVPage() {
                       <div className="analyze-file-empty">
                         <span style={{ fontSize: '2rem', color: 'var(--outline)' }}>📤</span>
                         <span>Chọn file JD</span>
-                        <small>PDF, DOCX</small>
+                        <small>PDF, DOCX, TXT, MD</small>
                       </div>
                     )}
                   </div>

@@ -145,22 +145,19 @@ class EditGeneratedCVUseCase:
         if not next_content or next_content == current_content:
             return assistant_reply or "Mình chưa tìm thấy thay đổi cụ thể để áp vào CV hiện tại.", None, current_content
 
-        next_version = await self._repo.get_next_version(user_id, current_cv.conversation_id)
         generated_payload = {
             "format": output_format,
             "content": next_content,
             "markdown": next_content,
             "chat_history": messages + [{"role": "assistant", "content": assistant_reply or "Đã cập nhật CV theo yêu cầu."}],
         }
-        new_cv = GeneratedCV(
+        new_cv = await self._repo.create_versioned(
             user_id=user_id,
             conversation_id=current_cv.conversation_id,
-            version=next_version,
             parent_version_id=current_cv.id,
             target_jd_text=current_cv.target_jd_text,
             base_profile_data=current_cv.base_profile_data,
             generated_content=generated_payload,
             status="completed",
         )
-        await self._repo.create(new_cv)
         return assistant_reply or "Đã cập nhật CV theo yêu cầu và lưu thành phiên bản mới.", new_cv, next_content

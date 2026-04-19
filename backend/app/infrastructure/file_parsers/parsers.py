@@ -30,10 +30,22 @@ class DocxParser(IFileParser):
         return filename.lower().endswith(".docx")
 
 
+class PlainTextParser(IFileParser):
+    """Parse plain text and markdown files."""
+
+    async def parse(self, file_path: str) -> str:
+        with open(file_path, "r", encoding="utf-8") as source:
+            return source.read()
+
+    def supports(self, filename: str) -> bool:
+        normalized = filename.lower()
+        return normalized.endswith(".txt") or normalized.endswith(".md")
+
+
 def get_parser(filename: str) -> IFileParser:
     """Factory to select appropriate file parser."""
 
-    parsers = [PDFParser(), DocxParser()]
+    parsers = [PDFParser(), DocxParser(), PlainTextParser()]
     for parser in parsers:
         if parser.supports(filename):
             return parser

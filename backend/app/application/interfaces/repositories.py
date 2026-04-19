@@ -1,8 +1,10 @@
+from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import List, Optional
 from uuid import UUID
 
 from app.domain.entities.user import User
+from app.domain.entities.password_reset_token import PasswordResetToken
 from app.domain.entities.analysis_result import AnalysisResult
 from app.domain.entities.cv_file import CVFile
 from app.domain.entities.generated_cv import GeneratedCV
@@ -25,6 +27,27 @@ class IUserRepository(ABC):
 
     @abstractmethod
     async def update(self, user_id: UUID, full_name: Optional[str] = None, phone_number: Optional[str] = None) -> Optional[User]:
+        ...
+
+    @abstractmethod
+    async def update_password_hash(self, user_id: UUID, password_hash: str) -> Optional[User]:
+        ...
+
+    @abstractmethod
+    async def create_password_reset_token(
+        self,
+        user_id: UUID,
+        token_hash: str,
+        expires_at: datetime,
+    ) -> PasswordResetToken:
+        ...
+
+    @abstractmethod
+    async def get_valid_password_reset_token(self, token_hash: str) -> Optional[PasswordResetToken]:
+        ...
+
+    @abstractmethod
+    async def invalidate_password_reset_tokens(self, user_id: UUID) -> None:
         ...
 
 
@@ -91,6 +114,20 @@ class IGeneratedCVRepository(ABC):
 
     @abstractmethod
     async def create(self, cv: "GeneratedCV") -> "GeneratedCV":
+        ...
+
+    @abstractmethod
+    async def create_versioned(
+        self,
+        *,
+        user_id: UUID,
+        conversation_id: UUID,
+        parent_version_id: UUID,
+        target_jd_text: Optional[str],
+        base_profile_data: Optional[dict],
+        generated_content: dict,
+        status: str,
+    ) -> "GeneratedCV":
         ...
 
     @abstractmethod

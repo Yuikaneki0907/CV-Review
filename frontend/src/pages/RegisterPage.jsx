@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { useAuth } from '../AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 
+const PASSWORD_REQUIREMENT = 'Chữ hoa, chữ thường, số, ký tự đặc biệt, > 8 ký tự';
+const PASSWORD_ERROR = 'Mật khẩu phải có chữ hoa, chữ thường, số, ký tự đặc biệt và dài hơn 8 ký tự.';
+const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{9,}$/;
+
 export default function RegisterPage() {
   const { registerUser } = useAuth();
   const navigate = useNavigate();
@@ -13,10 +17,22 @@ export default function RegisterPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    if (!PASSWORD_PATTERN.test(form.password)) {
+      setError(PASSWORD_ERROR);
+      return;
+    }
+
     setLoading(true);
     try {
       await registerUser(form.email, form.password, form.full_name);
-      navigate('/upload');
+      navigate('/login', {
+        replace: true,
+        state: {
+          email: form.email,
+          successMessage: 'Đăng ký thành công. Vui lòng đăng nhập để tiếp tục.',
+        },
+      });
     } catch (err) {
       setError(err.response?.data?.detail || 'Đăng ký thất bại');
     } finally {
@@ -98,8 +114,9 @@ export default function RegisterPage() {
                   type={showPassword ? 'text' : 'password'}
                   value={form.password}
                   onChange={set('password')}
-                  placeholder="Tối thiểu 6 ký tự"
-                  minLength={6}
+                  placeholder="Trên 8 ký tự"
+                  minLength={9}
+                  aria-describedby="reg-password-requirements"
                   required
                 />
                 <button
@@ -112,6 +129,9 @@ export default function RegisterPage() {
                   </span>
                 </button>
               </div>
+              <p id="reg-password-requirements" className="password-requirements">
+                {PASSWORD_REQUIREMENT}
+              </p>
             </div>
 
             <button type="submit" className="btn-primary" disabled={loading}>

@@ -1,17 +1,26 @@
 from typing import Literal, Optional
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RegisterRequest(BaseModel):
     email: str
-    password: str
+    password: str = Field(min_length=9)
     full_name: str = ""
 
 
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=9)
 
 
 class AnalysisRequest(BaseModel):

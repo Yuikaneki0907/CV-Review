@@ -117,9 +117,23 @@ class AnalyzeCVUseCase:
             # Step 4: Truth-Anchoring
             self._publish_step(analysis_id, "truthcheck", "running")
             step_start = time.perf_counter()
-            analysis.hallucination_report = await self._check_truth(
-                analysis.cv_text, analysis.rewritten_cv, cv_extracted
-            )
+            try:
+                analysis.hallucination_report = await self._check_truth(
+                    analysis.cv_text, analysis.rewritten_cv, cv_extracted
+                )
+                truth_status = "done"
+            except Exception as exc:
+                logger.warning(
+                    "Step 4 SKIPPED (truth-check): analysis_id=%s, error=%s",
+                    analysis_id,
+                    exc,
+                    exc_info=True,
+                )
+                analysis.hallucination_report = HallucinationReport(
+                    warnings=[],
+                    is_safe=True,
+                )
+                truth_status = "failed"
             step_ms = (time.perf_counter() - step_start) * 1000
             logger.info(
                 "Step 4 DONE (truth-check): %.0fms — warnings=%d, safe=%s",
@@ -128,7 +142,7 @@ class AnalyzeCVUseCase:
                 analysis.hallucination_report.is_safe,
             )
             await self._analysis_repo.update(analysis)
-            self._publish_step(analysis_id, "truthcheck", "done", step_ms)
+            self._publish_step(analysis_id, "truthcheck", truth_status, step_ms)
 
             # Step 5: Visual Diff
             self._publish_step(analysis_id, "diff", "running")
@@ -149,19 +163,32 @@ class AnalyzeCVUseCase:
             self._publish_step(analysis_id, "insights", "running")
             step_start = time.perf_counter()
             import asyncio
-            jd_eval_task = self._ai_service.evaluate_jd(analysis.jd_text, analysis.jd_extracted)
-            qa_task = self._ai_service.suggest_interview_questions(analysis.cv_extracted, analysis.jd_extracted)
-            salary_task = self._ai_service.negotiate_salary(analysis.cv_extracted, analysis.jd_extracted)
-            
-            jd_eval_res, qa_res, salary_res = await asyncio.gather(jd_eval_task, qa_task, salary_task)
-            analysis.jd_evaluation = jd_eval_res
-            analysis.interview_questions = qa_res
-            analysis.salary_negotiation = salary_res
+            try:
+                jd_eval_task = self._ai_service.evaluate_jd(analysis.jd_text, analysis.jd_extracted)
+                qa_task = self._ai_service.suggest_interview_questions(analysis.cv_extracted, analysis.jd_extracted)
+                salary_task = self._ai_service.negotiate_salary(analysis.cv_extracted, analysis.jd_extracted)
+
+                jd_eval_res, qa_res, salary_res = await asyncio.gather(jd_eval_task, qa_task, salary_task)
+                analysis.jd_evaluation = jd_eval_res
+                analysis.interview_questions = qa_res
+                analysis.salary_negotiation = salary_res
+                insights_status = "done"
+            except Exception as exc:
+                logger.warning(
+                    "Step 6 SKIPPED (insights): analysis_id=%s, error=%s",
+                    analysis_id,
+                    exc,
+                    exc_info=True,
+                )
+                analysis.jd_evaluation = {}
+                analysis.interview_questions = []
+                analysis.salary_negotiation = {}
+                insights_status = "failed"
             
             step_ms = (time.perf_counter() - step_start) * 1000
             logger.info("Step 6 DONE (insights): %.0fms", step_ms)
             await self._analysis_repo.update(analysis)
-            self._publish_step(analysis_id, "insights", "done", step_ms)
+            self._publish_step(analysis_id, "insights", insights_status, step_ms)
 
             analysis.mark_completed()
             total_ms = (time.perf_counter() - pipeline_start) * 1000

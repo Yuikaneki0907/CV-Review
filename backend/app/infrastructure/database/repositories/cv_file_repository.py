@@ -2,6 +2,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.interfaces.repositories import ICVFileRepository
@@ -57,10 +58,43 @@ class CVFileRepository(ICVFileRepository):
             select(func.coalesce(func.max(CVFileModel.version), 0)).where(
                 CVFileModel.user_id == user_id,
                 CVFileModel.original_filename == filename,
+                CVFileModel.deleted_at.is_(None),
             )
         )
         current_max = int(result.scalar_one())
         return current_max + 1
+
+    async def create_with_next_version(
+        self,
+        *,
+        file_id: UUID,
+        user_id: UUID,
+        analysis_id: Optional[UUID],
+        original_filename: str,
+        storage_key: str,
+        content_type: str,
+        file_size: int,
+    ) -> CVFile:
+        for _ in range(5):
+            next_version = await self.get_next_version(user_id, original_filename)
+            cv_file = CVFile(
+                id=file_id,
+                user_id=user_id,
+                analysis_id=analysis_id,
+                original_filename=original_filename,
+                storage_key=storage_key,
+                content_type=content_type,
+                file_size=file_size,
+                version=next_version,
+            )
+            try:
+                async with self._session.begin_nested():
+                    await self.create(cv_file)
+                return cv_file
+            except IntegrityError:
+                continue
+
+        raise RuntimeError("Không thể lưu phiên bản file CV mới do xung đột phiên bản liên tiếp")
 
     async def soft_delete(self, file_id: UUID, user_id: UUID) -> bool:
         from datetime import datetime, timezone

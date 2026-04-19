@@ -21,15 +21,21 @@ import {
   saveWorkspaceDraft,
 } from '../utils/workspaceDraft';
 import {
-  WORKSPACE_CHAT_JOB_EVENT,
-} from '../utils/workspaceChatJobs';
-import {
   getInterviewQuestionNote,
   getJdEvaluationAdvice,
   getJdEvaluationSummary,
   getSalaryAdvice,
   getSalaryRange,
 } from '../utils/analysisInsights';
+import { notifyGeneratedCvHistoryChanged } from '../utils/generatedCvHistory';
+import { TEMPLATE_SKELETONS } from '../utils/templateSkeletons';
+
+const TEMPLATE_TITLES = {
+  ats_clean: 'ATS-Friendly',
+  executive: 'Executive / Senior',
+  tech_engineer: 'Tech / Engineer',
+  fresh_graduate: 'Fresh Graduate',
+};
 
 const OUTPUT_FORMAT_OPTIONS = [
   { value: 'markdown', label: 'Markdown' },
@@ -39,6 +45,33 @@ const OUTPUT_FORMAT_OPTIONS = [
 const OUTPUT_FORMAT_LABELS = {
   markdown: 'Markdown',
   docx: 'DOCX',
+};
+
+const LAYOUT_MODES = [
+  { value: 'document', label: 'Ưu tiên CV' },
+  { value: 'balanced', label: 'Cân bằng' },
+  { value: 'chat', label: 'Ưu tiên chat' },
+];
+
+const EMPTY_CHAT_PROMPTS = [
+  'Rút gọn phần Summary theo hướng senior hơn',
+  'Viết lại kinh nghiệm để nổi bật vai trò Backend Engineer',
+  'Tối ưu CV này theo JD tôi sắp dán vào',
+];
+
+const CHAT_INPUT_MIN_HEIGHT = 72;
+const CHAT_INPUT_MAX_HEIGHT = 170;
+
+const resizeChatInput = (textarea) => {
+  if (!textarea) return;
+
+  textarea.style.height = 'auto';
+  const nextHeight = Math.min(
+    Math.max(textarea.scrollHeight, CHAT_INPUT_MIN_HEIGHT),
+    CHAT_INPUT_MAX_HEIGHT
+  );
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > CHAT_INPUT_MAX_HEIGHT ? 'auto' : 'hidden';
 };
 
 const normalizeOutputFormat = (value) =>
@@ -57,11 +90,22 @@ const inferOutputFormatFromDocument = (doc, fallback = 'markdown') => {
   return normalizeOutputFormat(fallback);
 };
 
-const extractContentFromDocument = (doc) =>
-  doc?.generated_content?.content ||
-  doc?.generated_content?.markdown ||
-  doc?.generated_content?.text ||
-  '';
+const extractEditorStateFromDocument = (doc) => {
+  const payload = doc?.generated_content || {};
+  const markdown =
+    payload.content ||
+    payload.markdown ||
+    payload.text ||
+    '';
+  const html = payload.html || '';
+  const useHtml = payload.import_preview_format === 'html' && typeof html === 'string' && html.trim().length > 0;
+
+  return {
+    value: useHtml ? html : markdown,
+    valueFormat: useHtml ? 'html' : 'markdown',
+    markdown,
+  };
+};
 
 const parseFilenameFromDisposition = (headerValue) => {
   if (!headerValue) return null;
@@ -79,6 +123,28 @@ const parseFilenameFromDisposition = (headerValue) => {
   return basicMatch?.[1]?.trim() || null;
 };
 
+const buildClientExportFilename = (title, ext) => {
+  const normalized = String(title || 'generated_cv')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+
+  return `${normalized || 'generated_cv'}.${ext}`;
+};
+
+const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
 export default function WorkspacePage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -90,6 +156,9 @@ export default function WorkspacePage() {
   const [loading, setLoading] = useState(false);
   const [cvDocument, setCvDocument] = useState(null);
   const [editableContent, setEditableContent] = useState('');
+  const [editableContentFormat, setEditableContentFormat] = useState('markdown');
+  const [editableMarkdown, setEditableMarkdown] = useState('');
+  const [documentDirty, setDocumentDirty] = useState(false);
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [outputFormat, setOutputFormat] = useState('markdown');
   const [exporting, setExporting] = useState(false);
@@ -97,6 +166,9 @@ export default function WorkspacePage() {
   const [saveMessage, setSaveMessage] = useState('');
   const [chatStatus, setChatStatus] = useState(null);
   const [versionHistory, setVersionHistory] = useState([]);
+  const [layoutMode, setLayoutMode] = useState('balanced');
+  const [staticTemplateTitle, setStaticTemplateTitle] = useState('');
+  const [editorInstanceKey, setEditorInstanceKey] = useState('empty');
 
   // ── CV Analysis attachment state ──────────────────
   const [attachedCvFile, setAttachedCvFile] = useState(null);
@@ -106,6 +178,7 @@ export default function WorkspacePage() {
   const [analysisSteps, setAnalysisSteps] = useState({});
   const [analysisResults, setAnalysisResults] = useState(null);
   const cvFileRef = useRef(null);
+  const chatInputRef = useRef(null);
 
   // ── Template state ───────────────────────────────
   const [templateId, setTemplateId] = useState(null);
@@ -128,13 +201,26 @@ export default function WorkspacePage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    resizeChatInput(chatInputRef.current);
+  }, [inputValue, showAttachPanel]);
+
   // Handle initialization
   useEffect(() => {
+    const routeTemplateId = new URLSearchParams(location.search).get('template');
+    const routeTemplateContent = routeTemplateId ? TEMPLATE_SKELETONS[routeTemplateId] || '' : '';
+    const navTemplateIdFromState = location.state?.templateId || null;
+    const navTemplateContentFromState = location.state?.templateContent || '';
+    const activeTemplateId = routeTemplateId || navTemplateIdFromState;
+    const activeTemplateContent = routeTemplateContent || navTemplateContentFromState;
+
     const navKey = id
       ? `id:${id}`
-      : location.state?.initialPrompt
-        ? `prompt:${location.key}`
-        : `empty:${location.key}`;
+      : activeTemplateContent
+        ? `template:${activeTemplateId || 'custom'}:${location.search || location.key}`
+        : location.state?.initialPrompt
+          ? `prompt:${location.key}`
+          : `empty:${location.key}`;
 
     if (initializedNav.current === navKey) return;
     initializedNav.current = navKey;
@@ -154,10 +240,18 @@ export default function WorkspacePage() {
 
       // If we are given an ID in URL, we are viewing an existing generated CV session
       if (id) {
+        setTemplateId(null);
         try {
           const res = await getGeneratedCV(id);
+          setTemplateId(null);
+          setStaticTemplateTitle('');
+          setEditorInstanceKey(`doc:${res.data.id}`);
           setCvDocument(res.data);
-          setEditableContent(extractContentFromDocument(res.data));
+          const editorState = extractEditorStateFromDocument(res.data);
+          setEditableContent(editorState.value);
+          setEditableContentFormat(editorState.valueFormat);
+          setEditableMarkdown(editorState.markdown);
+          setDocumentDirty(false);
           const serverFormat = inferOutputFormatFromDocument(res.data, draft?.outputFormat || outputFormat);
 
           const serverMessages = res.data.generated_content?.chat_history || [];
@@ -181,6 +275,25 @@ export default function WorkspacePage() {
           setOutputFormat(normalizeOutputFormat(draft?.outputFormat));
         }
       }
+      // If we came from a template card, open the static skeleton without sending a prompt.
+      else if (activeTemplateContent) {
+        if (user?.id) clearWorkspaceDraft(user.id, 'new');
+
+        const navTemplateId = activeTemplateId || null;
+        const navTemplateContent = activeTemplateContent;
+        setTemplateId(navTemplateId);
+        setStaticTemplateTitle(location.state?.templateTitle || TEMPLATE_TITLES[navTemplateId] || 'Mẫu CV có sẵn');
+        setEditorInstanceKey(`template:${navTemplateId || 'custom'}:${location.search || location.key}`);
+        setMessages([]);
+        setInputValue('');
+        setCvDocument(null);
+        setEditableContent(navTemplateContent);
+        setEditableContentFormat('markdown');
+        setEditableMarkdown(navTemplateContent);
+        setDocumentDirty(false);
+        setOutputFormat('markdown');
+        setLoading(false);
+      }
       // If we came from the home page with an initial prompt
       else if (location.state?.initialPrompt) {
         if (user?.id) clearWorkspaceDraft(user.id, 'new');
@@ -189,6 +302,8 @@ export default function WorkspacePage() {
         const navTemplateId = location.state.templateId || null;
         const navTemplateContent = location.state.templateContent || '';
         setTemplateId(navTemplateId);
+        setStaticTemplateTitle('');
+        setEditorInstanceKey(navTemplateContent ? `prompt-template:${navTemplateId || 'custom'}:${location.key}` : `prompt:${location.key}`);
         const initialMsgs = [{ role: 'user', content: initialPrompt }];
         setMessages(initialMsgs);
         setInputValue('');
@@ -197,9 +312,15 @@ export default function WorkspacePage() {
         // If template has skeleton content, show it immediately in Document Viewer
         if (navTemplateContent) {
           setEditableContent(navTemplateContent);
+          setEditableContentFormat('markdown');
+          setEditableMarkdown(navTemplateContent);
+          setDocumentDirty(false);
           setOutputFormat('markdown');
         } else {
           setEditableContent('');
+          setEditableContentFormat('markdown');
+          setEditableMarkdown('');
+          setDocumentDirty(false);
           setOutputFormat('markdown');
         }
         setLoading(true);
@@ -208,6 +329,10 @@ export default function WorkspacePage() {
         handleChatTurn(initialMsgs, 'markdown', navTemplateId);
       } else {
         // Empty workspace or restore unfinished draft
+        setTemplateId(null);
+        setStaticTemplateTitle('');
+        setEditorInstanceKey(`empty:${location.key}`);
+
         if (draft?.generatedCvId) {
           clearWorkspaceDraft(user.id, 'new');
           navigate(`/workspace/${draft.generatedCvId}`, { replace: true, state: { keepMessages: true } });
@@ -219,6 +344,9 @@ export default function WorkspacePage() {
           setInputValue(draft.inputValue || '');
           setCvDocument(null);
           setEditableContent('');
+          setEditableContentFormat('markdown');
+          setEditableMarkdown('');
+          setDocumentDirty(false);
           setLoading(Boolean(draft.pending));
           setOutputFormat(normalizeOutputFormat(draft.outputFormat));
           setRestoredDraft(true);
@@ -227,6 +355,9 @@ export default function WorkspacePage() {
           setInputValue('');
           setCvDocument(null);
           setEditableContent('');
+          setEditableContentFormat('markdown');
+          setEditableMarkdown('');
+          setDocumentDirty(false);
           setLoading(false);
           setOutputFormat('markdown');
         }
@@ -236,33 +367,7 @@ export default function WorkspacePage() {
     };
     initWorkspace();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, location.state, location.key, user?.id, scope, navigate]);
-
-  useEffect(() => {
-    if (!user?.id) return undefined;
-
-    const onJobUpdate = (event) => {
-      const detail = event.detail || {};
-      if (detail.userId !== user.id || detail.scope !== scope) return;
-
-      const draft = loadWorkspaceDraft(user.id, scope);
-      if (!draft) return;
-
-      setMessages(draft.messages || []);
-      setInputValue(draft.inputValue || '');
-      setLoading(Boolean(draft.pending));
-      setOutputFormat(normalizeOutputFormat(draft.outputFormat));
-
-      if (detail.generatedCvId && scope === 'new') {
-        navigate(`/workspace/${detail.generatedCvId}`, { replace: true, state: { keepMessages: true } });
-      }
-    };
-
-    window.addEventListener(WORKSPACE_CHAT_JOB_EVENT, onJobUpdate);
-    return () => {
-      window.removeEventListener(WORKSPACE_CHAT_JOB_EVENT, onJobUpdate);
-    };
-  }, [user?.id, scope, navigate]);
+  }, [id, location.state, location.key, location.search, user?.id, scope, navigate]);
 
   // Persist unfinished chat drafts so user can leave and return later.
   useEffect(() => {
@@ -274,6 +379,7 @@ export default function WorkspacePage() {
       inputValue,
       title: cvDocument?.base_profile_data?.job_title || '',
       pending: loading,
+      generatedCvId: cvDocument?.id || null,
       outputFormat,
     });
   }, [user?.id, scope, messages, inputValue, cvDocument?.base_profile_data?.job_title, loading, outputFormat]);
@@ -288,13 +394,20 @@ export default function WorkspacePage() {
       // NOT on initial mount when template skeleton content may already be set.
       if (prevId !== undefined) {
         setEditableContent('');
+        setEditableContentFormat('markdown');
+        setEditableMarkdown('');
+        setDocumentDirty(false);
       }
       setSaveMessage('');
       return;
     }
-    setEditableContent(extractContentFromDocument(cvDocument));
+    const editorState = extractEditorStateFromDocument(cvDocument);
+    setEditableContent(editorState.value);
+    setEditableContentFormat(editorState.valueFormat);
+    setEditableMarkdown(editorState.markdown);
+    setDocumentDirty(false);
     setSaveMessage('');
-  }, [cvDocument?.id, cvDocument?.generated_content?.content, cvDocument?.generated_content?.markdown]);
+  }, [cvDocument?.id, cvDocument?.generated_content?.content, cvDocument?.generated_content?.markdown, cvDocument?.generated_content?.html, cvDocument?.generated_content?.import_preview_format]);
 
   useEffect(() => {
     let mounted = true;
@@ -355,6 +468,8 @@ export default function WorkspacePage() {
           setStreamCvText(finalcvtext);
           // Auto-update editable content so user sees typing effect
           setEditableContent(finalcvtext);
+          setEditableContentFormat('markdown');
+          setEditableMarkdown(finalcvtext);
         } else if (event === 'cv_id') {
           idcv = data;
         } else if (event === 'signal') {
@@ -374,15 +489,41 @@ export default function WorkspacePage() {
       }
 
       if (idcv) {
+        let loadedCv = null;
         try {
           const cvRes = await getGeneratedCV(idcv);
+          loadedCv = cvRes.data;
           if (mountedRef.current) {
-            setCvDocument(cvRes.data);
-            setEditableContent(extractContentFromDocument(cvRes.data));
+            setStaticTemplateTitle('');
+            setEditorInstanceKey(`doc:${loadedCv.id}`);
+            setCvDocument(loadedCv);
+            const editorState = extractEditorStateFromDocument(loadedCv);
+            setEditableContent(editorState.value);
+            setEditableContentFormat(editorState.valueFormat);
+            setEditableMarkdown(editorState.markdown);
+            setDocumentDirty(false);
           }
         } catch (e) {
           console.error('Failed to load generated CV after stream finish:', e);
         }
+
+        if (user?.id) {
+          const nextScope = getDraftScope(idcv);
+          saveWorkspaceDraft({
+            userId: user.id,
+            scope: nextScope,
+            messages: finalMessages,
+            inputValue: '',
+            title: loadedCv?.base_profile_data?.job_title || cvDocument?.base_profile_data?.job_title || '',
+            pending: false,
+            generatedCvId: idcv,
+            outputFormat: normalizeOutputFormat(formatOverride),
+          });
+          if (scope !== nextScope) {
+            clearWorkspaceDraft(user.id, scope);
+          }
+        }
+        notifyGeneratedCvHistoryChanged();
 
         if (mountedRef.current && (!id || id !== idcv)) {
           navigate(`/workspace/${idcv}`, { replace: true, state: { keepMessages: true } });
@@ -449,6 +590,8 @@ export default function WorkspacePage() {
           // If rewritten CV, put it in document pane
           if (data.type === 'rewritten_cv' && data.data) {
             setEditableContent(data.data);
+            setEditableContentFormat('markdown');
+            setEditableMarkdown(data.data);
           }
         } else if (event === 'analysis_done') {
           const analysisId = data.analysis_id;
@@ -494,14 +637,29 @@ export default function WorkspacePage() {
     const newMsgs = [...messages, { role: 'user', content: inputValue.trim() }];
     setMessages(newMsgs);
     setInputValue('');
+    window.requestAnimationFrame(() => resizeChatInput(chatInputRef.current));
     handleChatTurn(newMsgs, outputFormat);
   };
 
   const documentFormat = cvDocument
     ? inferOutputFormatFromDocument(cvDocument, outputFormat)
     : normalizeOutputFormat(outputFormat);
-  const originalDocumentContent = extractContentFromDocument(cvDocument);
-  const hasUnsavedEdits = Boolean(cvDocument) && editableContent !== originalDocumentContent;
+  const hasUnsavedEdits = Boolean(cvDocument) && documentDirty;
+  const isImportedDocument = cvDocument?.generated_content?.import_preview_format === 'html';
+  const isStaticTemplate = Boolean(!cvDocument && templateId && editableContent);
+  const documentTitle = cvDocument
+    ? cvDocument.base_profile_data?.job_title || (isImportedDocument ? 'CV đã import' : 'CV đã tạo')
+    : isStaticTemplate
+      ? staticTemplateTitle || 'Mẫu CV có sẵn'
+      : 'Workspace CV';
+  const documentSubtitle = cvDocument
+    ? isImportedDocument
+      ? 'Nội dung đã được chuyển thành bản chỉnh sửa trực tiếp từ file PDF/DOCX.'
+      : 'Chỉnh sửa nội dung và lưu mỗi lần thành một version mới.'
+    : isStaticTemplate
+      ? 'Mẫu CV có sẵn đã được mở trực tiếp. Chỉnh nội dung trong editor hoặc chat tiếp nếu cần biến đổi bằng AI.'
+      : 'Tài liệu sẽ xuất hiện tại đây sau khi bạn tạo hoặc import CV.';
+  const showChatStarter = !messages.length && !streamAiReply && !loading && !analysisMode && !analysisResults;
 
   const handleSaveEdits = async () => {
     if (!cvDocument?.id || savingEdits) return null;
@@ -511,12 +669,33 @@ export default function WorkspacePage() {
     setSaveMessage('Đang lưu thành phiên bản mới...');
     try {
       const res = await createGeneratedCVVersion(cvDocument.id, {
-        content: editableContent,
+        content: editableMarkdown,
         output_format: documentFormat,
       });
       setCvDocument(res.data);
-      setEditableContent(extractContentFromDocument(res.data));
+      const editorState = extractEditorStateFromDocument(res.data);
+      setEditableContent(editorState.value);
+      setEditableContentFormat(editorState.valueFormat);
+      setEditableMarkdown(editorState.markdown);
+      setDocumentDirty(false);
       setSaveMessage(`Đã lưu phiên bản v${res.data.version}`);
+      if (user?.id) {
+        const nextScope = getDraftScope(res.data.id);
+        saveWorkspaceDraft({
+          userId: user.id,
+          scope: nextScope,
+          messages,
+          inputValue,
+          title: res.data.base_profile_data?.job_title || '',
+          pending: false,
+          generatedCvId: res.data.id,
+          outputFormat: documentFormat,
+        });
+        if (scope !== nextScope) {
+          clearWorkspaceDraft(user.id, scope);
+        }
+      }
+      notifyGeneratedCvHistoryChanged();
       if (mountedRef.current && res.data?.id && res.data.id !== id) {
         navigate(`/workspace/${res.data.id}`, { replace: true, state: { keepMessages: true } });
       }
@@ -531,46 +710,78 @@ export default function WorkspacePage() {
   };
 
   const handleExport = async () => {
-    if (!cvDocument?.id || exporting) return;
-    let activeDocument = cvDocument;
-    if (hasUnsavedEdits) {
-      const savedDocument = await handleSaveEdits();
-      if (!savedDocument) return;
-      activeDocument = savedDocument;
-    }
+    if (exporting) return;
 
-    const exportFormat = inferOutputFormatFromDocument(activeDocument, documentFormat);
+    const exportFormat = cvDocument
+      ? inferOutputFormatFromDocument(cvDocument, documentFormat)
+      : normalizeOutputFormat(documentFormat);
     const fallbackExt = exportFormat === 'docx' ? 'docx' : 'md';
+    const localMarkdown = editableMarkdown || (editableContentFormat === 'markdown' ? editableContent : '');
 
     setExporting(true);
     try {
+      if (exportFormat === 'markdown') {
+        if (!localMarkdown.trim()) {
+          setSaveMessage('CV không có nội dung để download.');
+          return;
+        }
+
+        downloadBlob(
+          new Blob([localMarkdown], { type: 'text/markdown;charset=utf-8' }),
+          buildClientExportFilename(
+            cvDocument?.base_profile_data?.job_title || staticTemplateTitle || documentTitle,
+            fallbackExt
+          )
+        );
+        return;
+      }
+
+      if (!cvDocument?.id) {
+        setSaveMessage('Download DOCX chỉ khả dụng sau khi CV đã được tạo hoặc lưu.');
+        return;
+      }
+
+      let activeDocument = cvDocument;
+      if (hasUnsavedEdits) {
+        const savedDocument = await handleSaveEdits();
+        if (!savedDocument) return;
+        activeDocument = savedDocument;
+      }
+
       const response = await downloadGeneratedCV(activeDocument.id, exportFormat);
       const headerValue = response.headers?.['content-disposition'] || response.headers?.['Content-Disposition'];
       const filename = parseFilenameFromDisposition(headerValue) || `generated_cv.${fallbackExt}`;
       const blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
-
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, filename);
     } catch (error) {
       console.error('Failed to export generated CV:', error);
+      setSaveMessage('Download thất bại, vui lòng thử lại.');
     } finally {
       setExporting(false);
     }
   };
 
   return (
-    <div className="workspace-container fade-in">
+    <div className={`workspace-container workspace-layout-${layoutMode} fade-in`}>
       {/* Left Pane: Chat Interaction */}
       <div className="workspace-chat-pane">
         <div className="chat-header">
-          <SparklesIcon className="chat-header-icon" />
-          <span>CV Assistant</span>
+          <div className="chat-header-main">
+            <div className="chat-header-title">
+              <SparklesIcon className="chat-header-icon" />
+              <div className="chat-header-copy">
+                <span>CV Assistant</span>
+                <small>
+                  {cvDocument
+                    ? 'Mô tả thay đổi ở bên trái, tài liệu sẽ cập nhật và lưu theo version.'
+                    : 'Tạo, phân tích và chỉnh sửa CV trên cùng một màn hình.'}
+                </small>
+              </div>
+            </div>
+          </div>
+          <span className={`chat-header-status ${loading ? 'busy' : ''}`}>
+            {loading ? 'Đang xử lý' : 'Sẵn sàng'}
+          </span>
         </div>
         {restoredDraft && (
           <div className="workspace-draft-banner">
@@ -579,6 +790,35 @@ export default function WorkspacePage() {
         )}
 
         <div className="chat-history auto-scroll-y">
+          {showChatStarter && (
+            <div className="workspace-chat-intro">
+              <span className="workspace-chat-intro-badge">
+                {cvDocument ? 'CV đã sẵn sàng' : 'Bắt đầu nhanh'}
+              </span>
+              <h3>
+                {cvDocument
+                  ? 'Bạn muốn AI sửa CV theo hướng nào?'
+                  : 'Bắt đầu tạo hoặc phân tích CV ngay tại đây'}
+              </h3>
+              <p>
+                {cvDocument
+                  ? 'Gửi yêu cầu ngắn gọn như viết lại kinh nghiệm, tối ưu theo JD, rút gọn summary hoặc đánh bóng thông tin ứng tuyển.'
+                  : 'Nhập prompt để tạo CV mới, hoặc mở chế độ phân tích ở phía dưới để upload CV và job description.'}
+              </p>
+              <div className="workspace-chat-suggestions">
+                {EMPTY_CHAT_PROMPTS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    className="workspace-chat-suggestion"
+                    onClick={() => setInputValue(prompt)}
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {messages.map((msg, idx) => (
             <div key={idx} className={`chat-bubble-wrapper ${msg.role === 'user' ? 'user' : 'assistant'}`}>
               <div className="chat-bubble">
@@ -793,49 +1033,61 @@ export default function WorkspacePage() {
               </div>
             </div>
           )}
-          <div className="workspace-format-selector" role="group" aria-label="Output format selector">
-            <button
-              type="button"
-              className={`workspace-format-chip ${showAttachPanel ? 'active' : ''}`}
-              onClick={() => setShowAttachPanel(!showAttachPanel)}
-              disabled={loading}
-              title="Phân tích CV"
-            >
-              📎 Phân tích CV
-            </button>
-            {OUTPUT_FORMAT_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`workspace-format-chip ${outputFormat === option.value ? 'active' : ''}`}
-                onClick={() => setOutputFormat(option.value)}
-                disabled={loading}
-              >
-                {option.label}
+          <div className="workspace-composer">
+            <div className="workspace-composer-top">
+              <div className="workspace-composer-toolbar">
+                <button
+                  type="button"
+                  className={`workspace-mode-chip ${showAttachPanel ? 'active' : ''}`}
+                  onClick={() => setShowAttachPanel(!showAttachPanel)}
+                  disabled={loading}
+                  title="Phân tích CV"
+                >
+                  <span className="workspace-mode-chip-icon">📎</span>
+                  <span>Phân tích CV</span>
+                </button>
+                <div className="workspace-format-selector" role="group" aria-label="Output format selector">
+                  {OUTPUT_FORMAT_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`workspace-format-chip ${outputFormat === option.value ? 'active' : ''}`}
+                      onClick={() => setOutputFormat(option.value)}
+                      disabled={loading}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <span className="workspace-composer-meta">
+                {showAttachPanel
+                  ? 'Đính kèm CV và JD ở phía trên để chấm điểm, phân tích và tối ưu.'
+                  : 'Enter để gửi. Shift + Enter để xuống dòng.'}
+              </span>
+            </div>
+            <div className="chat-input-wrapper" onClick={() => chatInputRef.current?.focus()}>
+              <textarea
+                ref={chatInputRef}
+                className="chat-input"
+                rows={2}
+                placeholder={showAttachPanel ? 'Đính kèm CV + JD ở phía trên để phân tích...' : 'Nhập yêu cầu của bạn (VD: thêm JD, đổi title...)'}
+                value={inputValue}
+                onChange={(e) => {
+                  setInputValue(e.target.value);
+                  resizeChatInput(e.target);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e);
+                  }
+                }}
+              />
+              <button type="submit" className={`chat-submit-btn ${inputValue.trim() ? 'active' : ''}`} disabled={!inputValue.trim() || loading}>
+                <PaperAirplaneIcon className="submit-icon" />
               </button>
-            ))}
-          </div>
-          <div className="chat-input-wrapper">
-            <textarea
-              className="chat-input"
-              rows={1}
-              placeholder={showAttachPanel ? 'Đính kèm CV + JD ở phía trên để phân tích...' : 'Nhập yêu cầu của bạn (VD: thêm JD, đổi title...)'}
-              value={inputValue}
-              onChange={(e) => {
-                setInputValue(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = `${e.target.scrollHeight}px`;
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmit(e);
-                }
-              }}
-            />
-            <button type="submit" className={`chat-submit-btn ${inputValue.trim() ? 'active' : ''}`} disabled={!inputValue.trim() || loading}>
-              <PaperAirplaneIcon className="submit-icon" />
-            </button>
+            </div>
           </div>
         </form>
       </div>
@@ -843,19 +1095,43 @@ export default function WorkspacePage() {
       {/* Right Pane: Document Viewer */}
       <div className="workspace-doc-pane">
         <div className="doc-header">
-          <div className="doc-title">
-            <DocumentCheckIcon className="doc-icon" />
-            <span>{cvDocument ? `CV - ${cvDocument.base_profile_data?.job_title || 'Generated'}` : 'Document Viewer'}</span>
-            <span className="doc-format-chip">{OUTPUT_FORMAT_LABELS[documentFormat]}</span>
-            {cvDocument?.version ? (
-              <span className="doc-version-chip">{`v${cvDocument.version}`}</span>
-            ) : null}
+          <div className="doc-header-main">
+            <div className="doc-title">
+              <div className="doc-icon-shell">
+                <DocumentCheckIcon className="doc-icon" />
+              </div>
+              <div className="doc-title-copy">
+                <span className="doc-title-text">{documentTitle}</span>
+                <span className="doc-title-caption">{documentSubtitle}</span>
+              </div>
+            </div>
+            {(cvDocument || editableContent) && (
+              <div className="doc-meta">
+                <span className="doc-format-chip">{OUTPUT_FORMAT_LABELS[documentFormat]}</span>
+                {cvDocument?.version ? (
+                  <span className="doc-version-chip">{`v${cvDocument.version}`}</span>
+                ) : null}
+                {hasUnsavedEdits ? <span className="doc-dirty-chip">Chưa lưu</span> : null}
+              </div>
+            )}
           </div>
-          {cvDocument && (
+          {(cvDocument || editableContent) && (
             <div className="doc-actions">
-              {versionHistory.length > 0 && (
+              <div className="workspace-layout-switch" role="group" aria-label="Điều chỉnh bố cục workspace">
+                {LAYOUT_MODES.map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    className={`workspace-layout-chip ${layoutMode === mode.value ? 'active' : ''}`}
+                    onClick={() => setLayoutMode(mode.value)}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+              {cvDocument && versionHistory.length > 0 && (
                 <label className="doc-version-select-wrap">
-                  <span>Version</span>
+                  <span>Phiên bản</span>
                   <select
                     className="doc-version-select"
                     value={cvDocument.id}
@@ -869,26 +1145,28 @@ export default function WorkspacePage() {
                   </select>
                 </label>
               )}
+              {cvDocument && (
+                <button
+                  type="button"
+                  className={`btn-ghost doc-action-btn ${hasUnsavedEdits ? 'doc-action-btn-highlight' : ''}`}
+                  onClick={handleSaveEdits}
+                  disabled={savingEdits || !hasUnsavedEdits}
+                >
+                  {savingEdits ? 'Đang lưu...' : 'Lưu thành version mới'}
+                </button>
+              )}
               <button
-                className="btn-ghost"
-                style={hasUnsavedEdits ? { borderColor: 'var(--primary)', color: 'var(--primary)' } : {}}
-                onClick={handleSaveEdits}
-                disabled={savingEdits || !hasUnsavedEdits}
-              >
-                {savingEdits ? 'Đang lưu...' : 'Lưu thành version mới'}
-              </button>
-              <button
-                className="btn-primary"
-                style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', width: 'auto' }}
+                type="button"
+                className="btn-primary doc-download-btn"
                 onClick={handleExport}
-                disabled={exporting}
+                disabled={exporting || !editableContent}
               >
                 {exporting ? 'Đang tải...' : `Download ${OUTPUT_FORMAT_LABELS[documentFormat]}`}
               </button>
             </div>
           )}
         </div>
-        {cvDocument && saveMessage && (
+        {(cvDocument || editableContent) && saveMessage && (
           <div className="doc-save-status">{saveMessage}</div>
         )}
 
@@ -896,9 +1174,16 @@ export default function WorkspacePage() {
           {(cvDocument || editableContent) ? (
             <div className="a4-paper cv-document">
               <CvWysiwygEditor
+                key={editorInstanceKey}
                 value={editableContent}
+                valueFormat={editableContentFormat}
                 format={documentFormat}
-                onChange={setEditableContent}
+                onChange={({ markdown, html }) => {
+                  setEditableContent(html);
+                  setEditableContentFormat('html');
+                  setEditableMarkdown(markdown);
+                  setDocumentDirty(true);
+                }}
                 readOnly={savingEdits}
               />
             </div>
@@ -907,7 +1192,7 @@ export default function WorkspacePage() {
               <div className="empty-icon-wrapper">
                 <DocumentCheckIcon className="empty-icon" />
               </div>
-              <p>Chưa có tài liệu CV nào được tạo.</p>
+              <p className="empty-title">Chưa có CV để chỉnh sửa</p>
               <p className="empty-subtext">Hãy chat với AI ở bên trái để bắt đầu tạo CV nhé.</p>
             </div>
           )}

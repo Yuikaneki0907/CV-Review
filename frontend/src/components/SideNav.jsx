@@ -1,23 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { listGeneratedCVs } from '../api';
 import { listWorkspaceDrafts, WORKSPACE_DRAFT_EVENT } from '../utils/workspaceDraft';
+import { GENERATED_CV_HISTORY_EVENT } from '../utils/generatedCvHistory';
 import {
   HomeIcon,
   SparklesIcon,
   ClockIcon,
   ArrowRightOnRectangleIcon,
   UserCircleIcon,
-  ChatBubbleLeftRightIcon,
   Bars3Icon,
   MagnifyingGlassIcon,
-  CubeTransparentIcon
+  CubeTransparentIcon,
+  UserIcon,
 } from '@heroicons/react/24/outline';
 import {
-  SparklesIcon as SparklesSolid,
   ClockIcon as ClockSolid,
-  ChatBubbleLeftRightIcon as ChatSolid,
   CubeTransparentIcon as CubeSolid
 } from '@heroicons/react/24/solid';
 
@@ -28,40 +27,75 @@ export default function SideNav() {
   const [history, setHistory] = useState([]);
   const [drafts, setDrafts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const isAuth = location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/';
 
   useEffect(() => {
-    if (user && !isAuth) {
-      listGeneratedCVs().then(res => {
-        setHistory(res.data || []);
-      }).catch(err => {
-        console.error("Error fetching history", err);
-      });
+    if (!user || isAuth) return undefined;
 
-      setDrafts(listWorkspaceDrafts(user.id));
-    }
-  }, [user, isAuth, location.pathname]); // Refetch when location changes to capture new CVs
+    let cancelled = false;
 
-  useEffect(() => {
-    if (!user || isAuth) return;
+    const refreshGeneratedHistory = async () => {
+      setHistoryLoading(true);
+      try {
+        const res = await listGeneratedCVs(50, 0);
+        if (!cancelled) {
+          setHistory(Array.isArray(res?.data) ? res.data : []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Error fetching generated CV history', err);
+        }
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    };
 
     const refreshDrafts = () => setDrafts(listWorkspaceDrafts(user.id));
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        refreshGeneratedHistory();
+        refreshDrafts();
+      }
+    };
+    const handleStorage = () => {
+      refreshDrafts();
+      refreshGeneratedHistory();
+    };
+
+    refreshGeneratedHistory();
+    refreshDrafts();
+
     window.addEventListener(WORKSPACE_DRAFT_EVENT, refreshDrafts);
+    window.addEventListener(GENERATED_CV_HISTORY_EVENT, refreshGeneratedHistory);
+    window.addEventListener('focus', refreshGeneratedHistory);
+    window.addEventListener('storage', handleStorage);
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
+
     return () => {
+      cancelled = true;
       window.removeEventListener(WORKSPACE_DRAFT_EVENT, refreshDrafts);
+      window.removeEventListener(GENERATED_CV_HISTORY_EVENT, refreshGeneratedHistory);
+      window.removeEventListener('focus', refreshGeneratedHistory);
+      window.removeEventListener('storage', handleStorage);
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
     };
   }, [user, isAuth]);
+
+  const filteredDrafts = useMemo(() => drafts.filter((item) =>
+    (item.title || 'Phiên chat').toLowerCase().includes(searchTerm.toLowerCase())
+  ), [drafts, searchTerm]);
+
+  const filteredHistory = useMemo(() => history.filter((item) =>
+    (item.job_title || 'CV Chưa Đặt Tên').toLowerCase().includes(searchTerm.toLowerCase())
+  ), [history, searchTerm]);
 
   if (isAuth || !user) return null;
 
   const getIcon = (path, OutlineIcon, SolidIcon) => {
     return location.pathname === path ? <SolidIcon className="sidenav-icon active-icon" /> : <OutlineIcon className="sidenav-icon" />;
   };
-
-  const filteredHistory = history.filter(item =>
-    (item.job_title || 'CV Chưa Đặt Tên').toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   return (
     <div className="sidenav-wrapper">
@@ -91,24 +125,29 @@ export default function SideNav() {
             <div className="sidenav-item">
               {isSidebarOpen ? <CubeSolid className="sidenav-icon active-icon" /> : <CubeTransparentIcon className="sidenav-icon" />}
             </div>
-            <span className="sidenav-text">Claw</span>
+            <span className="sidenav-text">Workspace</span>
           </div>
 
 
-          <Link to="/history" className={`sidenav-item-wrapped ${location.pathname === '/history' ? 'active' : ''}`} title="Lịch sử Dịch">
+          <Link to="/history" className={`sidenav-item-wrapped ${location.pathname === '/history' ? 'active' : ''}`} title="Lịch sử phân tích">
             <div className="sidenav-item">
               {getIcon('/history', ClockIcon, ClockSolid)}
             </div>
-            <span className="sidenav-text">History</span>
+            <span className="sidenav-text">Phân tích</span>
           </Link>
         </div>
 
         <div className="sidenav-bottom">
-          <div className="sidenav-item-wrapped" title={user.email}>
+          <Link
+            to="/profile"
+            className={`sidenav-item-wrapped ${location.pathname === '/profile' ? 'active' : ''}`}
+            title="Hồ sơ cá nhân"
+          >
             <div className="sidenav-item">
-              <UserCircleIcon className="sidenav-icon" />
+              {location.pathname === '/profile' ? <UserCircleIcon className="sidenav-icon active-icon" /> : <UserIcon className="sidenav-icon" />}
             </div>
-          </div>
+            <span className="sidenav-text">Profile</span>
+          </Link>
           <div role="button" tabIndex={0} className="sidenav-item-wrapped" onClick={logout} title="Đăng xuất">
             <div className="sidenav-item">
               <ArrowRightOnRectangleIcon className="sidenav-icon" />
@@ -120,7 +159,7 @@ export default function SideNav() {
       {/* Secondary Task List Sidebar */}
       <div className={`task-list-sidebar ${isSidebarOpen ? '' : 'closed'}`}>
         <div className="task-list-header">
-          <h3>Task List</h3>
+          <h3>Workspace CV</h3>
           <button className="task-list-toggle" onClick={() => setIsSidebarOpen(false)}>
             <Bars3Icon className="sidenav-icon" />
           </button>
@@ -132,7 +171,7 @@ export default function SideNav() {
             <input
               type="text"
               className="task-list-search-input"
-              placeholder="Search Chats"
+              placeholder="Tìm workspace"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -140,10 +179,10 @@ export default function SideNav() {
         </div>
 
         <div className="task-list-content">
-          {drafts.length > 0 && (
+          {filteredDrafts.length > 0 && (
             <>
               <div className="task-item-group">Đang làm dở</div>
-              {drafts.map((item) => {
+              {filteredDrafts.map((item) => {
                 const to = item.id ? `/workspace/${item.id}` : '/workspace';
                 const isActive = location.pathname === to;
                 return (
@@ -164,7 +203,7 @@ export default function SideNav() {
             </>
           )}
 
-          <div className="task-item-group">Today</div>
+          <div className="task-item-group">Đã lưu</div>
           {filteredHistory.map(item => {
             const isActive = location.pathname === `/workspace/${item.id}`;
             return (
@@ -182,9 +221,14 @@ export default function SideNav() {
               </Link>
             );
           })}
-          {filteredHistory.length === 0 && (
+          {historyLoading && (
             <div style={{ padding: '1rem', color: 'var(--outline-variant)', fontSize: '0.8rem', textAlign: 'center' }}>
-              Không có dữ liệu
+              Đang tải workspace...
+            </div>
+          )}
+          {!historyLoading && filteredDrafts.length === 0 && filteredHistory.length === 0 && (
+            <div style={{ padding: '1rem', color: 'var(--outline-variant)', fontSize: '0.8rem', textAlign: 'center' }}>
+              Chưa có workspace nào
             </div>
           )}
         </div>

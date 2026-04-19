@@ -27,6 +27,7 @@ from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.analysis_repository import AnalysisRepository
 from app.infrastructure.database.repositories.cv_file_repository import CVFileRepository
 from app.infrastructure.ai import ai_service_factory
+from app.infrastructure.file_parsers.upload_validation import read_and_validate_upload
 from app.infrastructure.storage.minio_storage import MinioFileStorage
 from app.infrastructure.file_parsers.parsers import get_parser
 from app.infrastructure.celery.tasks import run_analysis_task
@@ -76,16 +77,15 @@ async def create_analysis(
         user_id, cv_file.filename, cv_file.content_type,
     )
 
-    try:
-        cv_parser = get_parser(cv_file.filename)
-    except ValueError:
-        logger.warning("Unsupported file type: filename=%s", cv_file.filename)
-        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file PDF hoặc DOCX")
-
-    # ── Read CV bytes ────────────────────────────────────────────
-    file_bytes = await cv_file.read()
-    file_size = len(file_bytes)
-    ext = os.path.splitext(cv_file.filename)[1]
+    file_bytes, cv_meta = await read_and_validate_upload(
+        cv_file,
+        allowed_types={"pdf", "docx"},
+        max_size_mb=settings.MAX_FILE_SIZE_MB,
+        detail="Chỉ hỗ trợ file CV định dạng PDF hoặc DOCX",
+    )
+    cv_parser = get_parser(cv_meta.filename)
+    file_size = cv_meta.file_size
+    ext = cv_meta.extension
     file_id = uuid4()
 
     # ── Upload CV to MinIO ───────────────────────────────────────
@@ -125,16 +125,14 @@ async def create_analysis(
             "Upload JD file: user_id=%s, filename=%s, content_type=%s",
             user_id, jd_file.filename, jd_file.content_type,
         )
-        try:
-            jd_parser = get_parser(jd_file.filename)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="JD file: chỉ hỗ trợ PDF hoặc DOCX",
-            )
-
-        jd_bytes = await jd_file.read()
-        jd_ext = os.path.splitext(jd_file.filename)[1]
+        jd_bytes, jd_meta = await read_and_validate_upload(
+            jd_file,
+            allowed_types={"pdf", "docx", "txt", "md"},
+            max_size_mb=settings.MAX_FILE_SIZE_MB,
+            detail="JD file: chỉ hỗ trợ PDF, DOCX, TXT hoặc MD",
+        )
+        jd_parser = get_parser(jd_meta.filename)
+        jd_ext = jd_meta.extension
 
         # Upload JD to MinIO (subfolder jd/)
         jd_file_id = uuid4()
@@ -171,30 +169,27 @@ async def create_analysis(
 
     analysis = AnalysisResult(
         user_id=user_id,
-        cv_filename=cv_file.filename,
+        cv_filename=cv_meta.filename,
         cv_text=cv_text,
         jd_text=jd_final_text,
     )
     await analysis_repo.create(analysis)
 
-    version = await cv_file_repo.get_next_version(user_id, cv_file.filename)
-    cv_record = CVFile(
-        id=file_id,
+    cv_record = await cv_file_repo.create_with_next_version(
+        file_id=file_id,
         user_id=user_id,
         analysis_id=analysis.id,
-        original_filename=cv_file.filename,
+        original_filename=cv_meta.filename,
         storage_key=storage_key,
         content_type=content_type,
         file_size=file_size,
-        version=version,
     )
-    await cv_file_repo.create(cv_record)
 
     await session.commit()
 
     logger.info(
         "Analysis created: analysis_id=%s, cv_file_id=%s (v%d), user_id=%s → dispatching to Celery",
-        analysis.id, file_id, version, user_id,
+        analysis.id, file_id, cv_record.version, user_id,
     )
 
     # Dispatch to Celery
@@ -281,15 +276,15 @@ async def chat_analyze_stream(
     if not cv_file.filename:
         raise HTTPException(status_code=400, detail="File name is required")
 
-    try:
-        cv_parser = get_parser(cv_file.filename)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file PDF hoặc DOCX")
-
-    # ── Read & parse CV ──────────────────────────────────────────
-    file_bytes = await cv_file.read()
-    file_size = len(file_bytes)
-    ext = os.path.splitext(cv_file.filename)[1]
+    file_bytes, cv_meta = await read_and_validate_upload(
+        cv_file,
+        allowed_types={"pdf", "docx"},
+        max_size_mb=settings.MAX_FILE_SIZE_MB,
+        detail="Chỉ hỗ trợ file CV định dạng PDF hoặc DOCX",
+    )
+    cv_parser = get_parser(cv_meta.filename)
+    file_size = cv_meta.file_size
+    ext = cv_meta.extension
     file_id = uuid4()
 
     storage = _get_file_storage()
@@ -319,13 +314,14 @@ async def chat_analyze_stream(
     # ── Handle JD ────────────────────────────────────────────────
     jd_final_text = jd_text.strip()
     if jd_file is not None and jd_file.filename:
-        try:
-            jd_parser = get_parser(jd_file.filename)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="JD file: chỉ hỗ trợ PDF hoặc DOCX")
-
-        jd_bytes = await jd_file.read()
-        jd_ext = os.path.splitext(jd_file.filename)[1]
+        jd_bytes, jd_meta = await read_and_validate_upload(
+            jd_file,
+            allowed_types={"pdf", "docx", "txt", "md"},
+            max_size_mb=settings.MAX_FILE_SIZE_MB,
+            detail="JD file: chỉ hỗ trợ PDF, DOCX, TXT hoặc MD",
+        )
+        jd_parser = get_parser(jd_meta.filename)
+        jd_ext = jd_meta.extension
         jd_tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix=jd_ext, delete=False) as jtmp:
@@ -344,24 +340,21 @@ async def chat_analyze_stream(
 
     analysis = AnalysisResult(
         user_id=user_id,
-        cv_filename=cv_file.filename,
+        cv_filename=cv_meta.filename,
         cv_text=cv_text,
         jd_text=jd_final_text,
     )
     await analysis_repo.create(analysis)
 
-    version = await cv_file_repo.get_next_version(user_id, cv_file.filename)
-    cv_record = CVFile(
-        id=file_id,
+    await cv_file_repo.create_with_next_version(
+        file_id=file_id,
         user_id=user_id,
         analysis_id=analysis.id,
-        original_filename=cv_file.filename,
+        original_filename=cv_meta.filename,
         storage_key=storage_key,
         content_type=content_type,
         file_size=file_size,
-        version=version,
     )
-    await cv_file_repo.create(cv_record)
     await session.commit()
 
     analysis_id = analysis.id
