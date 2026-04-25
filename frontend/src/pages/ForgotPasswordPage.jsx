@@ -34,21 +34,21 @@ export default function ForgotPasswordPage() {
         <div className="auth-brand-content">
           <div className="auth-brand-logo">
             <span className="material-symbols-outlined">lock_reset</span>
-            <span>Password Recovery</span>
+            <span>Khôi phục mật khẩu</span>
           </div>
           <div className="auth-brand-hero">
-            <span className="auth-brand-tag">Secure Recovery Flow</span>
+            <span className="auth-brand-tag">Quy trình khôi phục an toàn</span>
             <h1>Lấy lại quyền truy cập tài khoản</h1>
             <p>Nhập email đã đăng ký để nhận liên kết đặt lại mật khẩu. Liên kết chỉ dùng được một lần và sẽ tự hết hạn.</p>
           </div>
           <div className="auth-brand-stats">
             <div>
-              <span className="stat-label">Reset Token</span>
-              <span className="stat-value">One-time</span>
+              <span className="stat-label">Mã khôi phục</span>
+              <span className="stat-value">Dùng một lần</span>
             </div>
             <div>
-              <span className="stat-label">Validity</span>
-              <span className="stat-value">30 min</span>
+              <span className="stat-label">Hiệu lực</span>
+              <span className="stat-value">30 phút</span>
             </div>
           </div>
         </div>

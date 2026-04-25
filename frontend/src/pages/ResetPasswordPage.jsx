@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { resetPassword } from '../api';
 
-const PASSWORD_REQUIREMENT = 'Chữ hoa, chữ thường, số, ký tự đặc biệt, > 8 ký tự';
 const PASSWORD_ERROR = 'Mật khẩu phải có chữ hoa, chữ thường, số, ký tự đặc biệt và dài hơn 8 ký tự.';
 const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{9,}$/;
 
@@ -60,21 +59,21 @@ export default function ResetPasswordPage() {
         <div className="auth-brand-content">
           <div className="auth-brand-logo">
             <span className="material-symbols-outlined">password</span>
-            <span>Credential Renewal</span>
+            <span>Khôi phục mật khẩu</span>
           </div>
           <div className="auth-brand-hero">
-            <span className="auth-brand-tag">One-Time Access</span>
+            <span className="auth-brand-tag">Truy cập một lần</span>
             <h1>Tạo mật khẩu mới</h1>
             <p>Đặt một mật khẩu mới để kích hoạt lại tài khoản. Sau khi hoàn tất, các token reset cũ sẽ tự bị vô hiệu hóa.</p>
           </div>
           <div className="auth-brand-stats">
             <div>
-              <span className="stat-label">Security</span>
-              <span className="stat-value">Hashed Token</span>
+              <span className="stat-label">Bảo mật</span>
+              <span className="stat-value">Mã an toàn</span>
             </div>
             <div>
-              <span className="stat-label">Result</span>
-              <span className="stat-value">Login Again</span>
+              <span className="stat-label">Kết quả</span>
+              <span className="stat-value">Đăng nhập lại</span>
             </div>
           </div>
         </div>
@@ -85,7 +84,7 @@ export default function ResetPasswordPage() {
         <div className="auth-form-container">
           <div className="auth-header">
             <h2>Đặt lại mật khẩu</h2>
-            <p>Tạo mật khẩu mới cho tài khoản của bạn. Mật khẩu cần có chữ hoa, chữ thường, số, ký tự đặc biệt và dài hơn 8 ký tự.</p>
+            <p>Tạo mật khẩu mới cho tài khoản của bạn.</p>
           </div>
 
           <form onSubmit={handleSubmit}>
@@ -119,9 +118,6 @@ export default function ResetPasswordPage() {
                   </span>
                 </button>
               </div>
-              <p id="reset-password-requirements" className="password-requirements">
-                {PASSWORD_REQUIREMENT}
-              </p>
             </div>
 
             <div className="field">

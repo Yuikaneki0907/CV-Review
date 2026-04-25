@@ -14,10 +14,10 @@ import {
 import { TEMPLATE_SKELETONS } from '../utils/templateSkeletons';
 
 const TEMPLATE_CARDS = [
-  { id: 'ats_clean', label: 'ATS-Friendly', accent: 'blue' },
-  { id: 'executive', label: 'Executive / Senior', accent: 'navy' },
-  { id: 'tech_engineer', label: 'Tech / Engineer', accent: 'tech' },
-  { id: 'fresh_graduate', label: 'Fresh Graduate', accent: 'orange' },
+  { id: 'ats_clean', label: 'Chuẩn ATS', accent: 'blue' },
+  { id: 'executive', label: 'Quản lý / Chuyên gia', accent: 'navy' },
+  { id: 'tech_engineer', label: 'Kỹ sư / CNTT', accent: 'tech' },
+  { id: 'fresh_graduate', label: 'Sinh viên mới tốt nghiệp', accent: 'orange' },
 ];
 
 const parseTemplatePreview = (templateId) => {
@@ -104,10 +104,10 @@ export default function GenerateCVPage() {
 
   const handleTemplateClick = (templateId) => {
     const templateTitles = {
-      ats_clean: 'ATS-Friendly',
-      executive: 'Executive / Senior',
-      tech_engineer: 'Tech / Engineer',
-      fresh_graduate: 'Fresh Graduate',
+      ats_clean: 'Chuẩn ATS',
+      executive: 'Quản lý / Chuyên gia',
+      tech_engineer: 'Kỹ sư / CNTT',
+      fresh_graduate: 'Sinh viên mới tốt nghiệp',
     };
     navigate(`/workspace?template=${templateId}`, {
       state: {
@@ -178,7 +178,7 @@ export default function GenerateCVPage() {
         <div className="prompter-header">
           <div className="ai-badge">
             <SparklesIcon className="badge-icon" />
-            <span>AI Resume Builder</span>
+            <span>Trợ lý tạo CV AI</span>
           </div>
           <h1 className="prompter-title">
             <ModeTitleIcon className="prompter-title-icon" />
@@ -187,7 +187,7 @@ export default function GenerateCVPage() {
           <p className="prompter-subtitle">
             {mode === 'create'
               ? 'Nhập prompt để bắt đầu từ blank document, hoặc chọn template hay upload CV có sẵn ở bên dưới.'
-              : 'Upload CV và thêm Job Description bằng text hoặc file để AI phân tích, chấm điểm và tối ưu.'}
+              : 'Upload CV và thêm Mô tả công việc (JD) bằng text hoặc file để AI phân tích, chấm điểm và tối ưu.'}
           </p>
         </div>
 
@@ -253,9 +253,9 @@ export default function GenerateCVPage() {
                         {importing ? 'Đang trích xuất nội dung và mở workspace' : 'PDF hoặc DOCX'}
                       </div>
                       <div className="tpl-import-steps">
-                        <span>Import</span>
-                        <span>Edit</span>
-                        <span>Version</span>
+                        <span>Nhập</span>
+                        <span>Chỉnh sửa</span>
+                        <span>Phiên bản</span>
                       </div>
                     </div>
                     <span className="tpl-card-name">Upload CV để sửa</span>
@@ -298,7 +298,7 @@ export default function GenerateCVPage() {
                 </div>
               </div>
               <div className="analyze-upload-card">
-                <h3>📋 Job Description</h3>
+                <h3>📋 Mô tả công việc (JD)</h3>
                 <div className="jd-mode-toggle" style={{ marginBottom: '1rem' }}>
                   <button
                     type="button"
@@ -320,7 +320,7 @@ export default function GenerateCVPage() {
                     className="analyze-jd-textarea"
                     value={jdText}
                     onChange={(e) => setJdText(e.target.value)}
-                    placeholder={"Dán nội dung Job Description tại đây...\n\nVí dụ:\n- Yêu cầu 3 năm kinh nghiệm Python...\n- Kỹ năng: FastAPI, Docker, PostgreSQL..."}
+                    placeholder={"Dán nội dung Mô tả công việc (JD) tại đây...\n\nVí dụ:\n- Yêu cầu 3 năm kinh nghiệm Python...\n- Kỹ năng: FastAPI, Docker, PostgreSQL..."}
                     rows={8}
                   />
                 ) : (

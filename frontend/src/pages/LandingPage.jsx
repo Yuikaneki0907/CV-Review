@@ -10,7 +10,7 @@ export default function LandingPage() {
             {/* Hero */}
             <section className="landing-hero">
                 <div className="hero-content">
-                    <div className="hero-badge">⭐ AI-Powered CV Optimization</div>
+                    <div className="hero-badge">⭐ Tối ưu CV bằng AI</div>
                     <h1>
                         Tối ưu CV cho<br />
                         <span className="hero-gradient-text">vị trí mơ ước</span>
@@ -50,7 +50,7 @@ export default function LandingPage() {
                         <div className="hero-card-top">
                             <div>
                                 <h3>Kết quả phân tích</h3>
-                                <span className="hero-card-sub">Senior Backend Engineer</span>
+                                <span className="hero-card-sub">Kỹ Sư Backend Cấp Cao</span>
                             </div>
                             <div className="hero-score-ring">
                                 <svg viewBox="0 0 100 100">
@@ -121,13 +121,13 @@ export default function LandingPage() {
             {/* Features */}
             <section className="landing-features">
                 <div className="features-grid">
-                    <FeatureCard icon="🎯" color="#3b82f6" title="Skill Matching thông minh"
+                    <FeatureCard icon="🎯" color="#3b82f6" title="So Khớp Kỹ Năng Thông Minh"
                         desc="Phân tích sâu sự tương đồng giữa kỹ năng của bạn và yêu cầu nhà tuyển dụng." />
-                    <FeatureCard icon="✏️" color="#4edea3" title="CV Rewrite bằng AI"
+                    <FeatureCard icon="✏️" color="#4edea3" title="Viết lại CV bằng AI"
                         desc="Tự động viết lại với văn phong chuyên nghiệp, chuẩn quốc tế." />
-                    <FeatureCard icon="🛡️" color="#ffb4ab" title="Hallucination Check"
+                    <FeatureCard icon="🛡️" color="#ffb4ab" title="Kiểm Tra Tính Xác Thực"
                         desc="Phát hiện thông tin không chính xác hoặc phóng đại quá mức." />
-                    <FeatureCard icon="📊" color="#f59e42" title="Visual Diff"
+                    <FeatureCard icon="📊" color="#f59e42" title="So Sánh Trực Quan"
                         desc="So sánh trực quan giữa bản gốc và bản tối ưu, highlight mọi thay đổi." />
                 </div>
             </section>
@@ -151,7 +151,7 @@ export default function LandingPage() {
             <footer className="landing-footer">
                 <div className="footer-content">
                     <div className="footer-brand">
-                        <strong>Editorial Intelligence</strong>
+                        <strong>Hệ thống thông minh</strong>
                         <p>Nền tảng trí tuệ nhân tạo hàng đầu cho việc tối ưu hóa hồ sơ năng lực.</p>
                     </div>
                     <div className="footer-links">
@@ -160,7 +160,7 @@ export default function LandingPage() {
                         <a href="#">Điều khoản</a>
                         <a href="#">Bảo mật</a>
                     </div>
-                    <span className="footer-copy">© 2026 Editorial Intelligence — Powered by AI</span>
+                    <span className="footer-copy">© 2026 Hệ thống thông minh — Vận hành bởi AI</span>
                 </div>
             </footer>
         </div>

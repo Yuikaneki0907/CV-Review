@@ -79,7 +79,7 @@ export default function UploadPage() {
     <div className="upload-page">
       <div className="upload-header">
         <h2>Phân tích CV</h2>
-        <p>Upload CV và nhập Job Description để bắt đầu phân tích</p>
+        <p>Upload CV và nhập Mô tả công việc (JD) để bắt đầu phân tích</p>
       </div>
 
       <form onSubmit={handleSubmit} className="upload-form">
@@ -127,7 +127,7 @@ export default function UploadPage() {
           <div className="upload-section">
             <h3>
               <span className="material-symbols-outlined" style={{ fontSize: '1.1rem', color: 'var(--primary)' }}>work</span>
-              Job Description
+              Mô tả công việc (JD)
             </h3>
 
             <div className="jd-mode-toggle">
@@ -154,7 +154,7 @@ export default function UploadPage() {
                 className="jd-input"
                 value={jdText}
                 onChange={(e) => setJdText(e.target.value)}
-                placeholder={"Dán nội dung Job Description tại đây...\n\nVí dụ:\n- Yêu cầu: 3 năm kinh nghiệm Python\n- Kỹ năng: FastAPI, Docker, PostgreSQL..."}
+                placeholder={"Dán nội dung Mô tả công việc (JD) tại đây...\n\nVí dụ:\n- Yêu cầu: 3 năm kinh nghiệm Python\n- Kỹ năng: FastAPI, Docker, PostgreSQL..."}
                 rows={10}
               />
             ) : (

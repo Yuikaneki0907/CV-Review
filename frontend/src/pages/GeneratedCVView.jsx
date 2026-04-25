@@ -98,7 +98,7 @@ export default function GeneratedCVView() {
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
           <button className="btn-secondary" onClick={handleCopy}>
-            {copied ? 'Đã sao chép!' : 'Copy Markdown'}
+            {copied ? 'Đã sao chép!' : 'Sao chép Markdown'}
           </button>
           <button className="btn-primary" onClick={handleDownload} disabled={downloading}>
             {downloading ? 'Đang tải...' : 'Download CV'}

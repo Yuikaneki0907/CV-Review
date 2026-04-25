@@ -31,10 +31,10 @@ import { notifyGeneratedCvHistoryChanged } from '../utils/generatedCvHistory';
 import { TEMPLATE_SKELETONS } from '../utils/templateSkeletons';
 
 const TEMPLATE_TITLES = {
-  ats_clean: 'ATS-Friendly',
-  executive: 'Executive / Senior',
-  tech_engineer: 'Tech / Engineer',
-  fresh_graduate: 'Fresh Graduate',
+  ats_clean: 'Chuẩn ATS',
+  executive: 'Quản lý / Chuyên gia',
+  tech_engineer: 'Kỹ sư / CNTT',
+  fresh_graduate: 'Sinh viên mới tốt nghiệp',
 };
 
 const OUTPUT_FORMAT_OPTIONS = [
@@ -54,8 +54,8 @@ const LAYOUT_MODES = [
 ];
 
 const EMPTY_CHAT_PROMPTS = [
-  'Rút gọn phần Summary theo hướng senior hơn',
-  'Viết lại kinh nghiệm để nổi bật vai trò Backend Engineer',
+  'Rút gọn phần Summary theo hướng quản lý hơn',
+  'Viết lại kinh nghiệm để nổi bật vai trò Kỹ sư Backend',
   'Tối ưu CV này theo JD tôi sắp dán vào',
 ];
 
@@ -770,7 +770,7 @@ export default function WorkspacePage() {
             <div className="chat-header-title">
               <SparklesIcon className="chat-header-icon" />
               <div className="chat-header-copy">
-                <span>CV Assistant</span>
+                <span>Trợ lý CV</span>
                 <small>
                   {cvDocument
                     ? 'Mô tả thay đổi ở bên trái, tài liệu sẽ cập nhật và lưu theo version.'
@@ -855,8 +855,8 @@ export default function WorkspacePage() {
             <div className="chat-tool-execution">
               <div className="tool-icon">🛠️</div>
               <div className="tool-text">
-                <span className="tool-name">Using Tool | Generate CV Markdown</span>
-                <span className="tool-status">Crafting document in real-time...</span>
+                <span className="tool-name">Công cụ | Đang tạo CV Markdown</span>
+                <span className="tool-status">Đang soạn thảo tài liệu...</span>
               </div>
             </div>
           )}
@@ -1019,7 +1019,7 @@ export default function WorkspacePage() {
                   className="attach-jd-input"
                   value={attachedJdText}
                   onChange={(e) => setAttachedJdText(e.target.value)}
-                  placeholder="Dán Job Description tại đây..."
+                  placeholder="Dán Mô tả công việc (JD) tại đây..."
                   rows={4}
                 />
                 <button
