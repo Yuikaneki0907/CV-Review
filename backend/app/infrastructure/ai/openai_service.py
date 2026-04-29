@@ -377,12 +377,16 @@ Frontend Developer với kinh nghiệm làm việc cùng ReactJS và TypeScript.
         current_cv: str,
         output_format: str = "markdown",
     ) -> Dict:
+        # Optimization: LLM Context Memory (Sliding Window)
+        # Only keep the last 6 messages (3 turns) to prevent token explosion.
+        recent_messages = messages[-6:] if len(messages) > 6 else messages
+
         prompt = f"""
         Bạn là trợ lý chỉnh sửa CV theo yêu cầu hội thoại.
         Nhiệm vụ: KHÔNG viết lại toàn bộ CV. Chỉ trả về các thao tác chỉnh sửa cục bộ nhỏ nhất cần thiết.
 
         Conversation:
-        {json.dumps(messages, ensure_ascii=False, indent=2)}
+        {json.dumps(recent_messages, ensure_ascii=False, indent=2)}
 
         Current CV ({output_format}, lưu dưới markdown):
         ---

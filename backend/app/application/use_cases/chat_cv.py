@@ -106,7 +106,10 @@ class ChatCVUseCase:
             )
         }
         
-        chat_messages = [system_prompt] + messages
+        # Optimization: LLM Context Memory (Sliding Window)
+        # Only keep the last 6 messages (3 turns) to prevent token explosion.
+        recent_messages = messages[-6:] if len(messages) > 6 else messages
+        chat_messages = [system_prompt] + recent_messages
         
         ai_reply = await self.ai.chat_interaction(chat_messages)
         
@@ -203,7 +206,10 @@ class ChatCVUseCase:
             )
         }
         
-        chat_messages = [system_prompt] + messages
+        # Optimization: LLM Context Memory (Sliding Window)
+        # Only keep the last 6 messages (3 turns) to prevent token explosion.
+        recent_messages = messages[-6:] if len(messages) > 6 else messages
+        chat_messages = [system_prompt] + recent_messages
         
         buffer = ""
         in_cv = False
