@@ -164,3 +164,8 @@ class IGeneratedCVRepository(ABC):
     @abstractmethod
     async def soft_delete(self, cv_id: UUID, user_id: UUID) -> bool:
         ...
+
+    @abstractmethod
+    async def save_chat_messages(self, conversation_id: UUID, user_id: UUID, messages: list) -> None:
+        ...
+

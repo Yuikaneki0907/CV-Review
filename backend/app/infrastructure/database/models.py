@@ -146,3 +146,18 @@ class GeneratedCVModel(Base):
     deleted_at = Column(DateTime, nullable=True)
 
     user = relationship("UserModel")
+
+
+class ChatSessionModel(Base):
+    __tablename__ = "chat_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=True), nullable=False, index=True, unique=True)
+    messages = Column(JSONB, nullable=False, default=list)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserModel")
+

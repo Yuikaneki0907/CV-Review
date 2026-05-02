@@ -135,6 +135,9 @@ class EditGeneratedCVUseCase:
         assistant_reply = (plan.get("assistant_reply") or "").strip()
         operations = plan.get("operations") or []
 
+        full_chat = messages + [{"role": "assistant", "content": assistant_reply or "Đã cập nhật CV theo yêu cầu."}]
+        await self._repo.save_chat_messages(current_cv.conversation_id, user_id, full_chat)
+
         if not isinstance(operations, list):
             operations = []
 
@@ -149,7 +152,6 @@ class EditGeneratedCVUseCase:
             "format": output_format,
             "content": next_content,
             "markdown": next_content,
-            "chat_history": messages + [{"role": "assistant", "content": assistant_reply or "Đã cập nhật CV theo yêu cầu."}],
         }
         new_cv = await self._repo.create_versioned(
             user_id=user_id,
@@ -160,4 +162,5 @@ class EditGeneratedCVUseCase:
             generated_content=generated_payload,
             status="completed",
         )
+        
         return assistant_reply or "Đã cập nhật CV theo yêu cầu và lưu thành phiên bản mới.", new_cv, next_content

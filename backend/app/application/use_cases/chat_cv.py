@@ -54,7 +54,6 @@ class ChatCVUseCase:
             "format": output_format,
             "content": cv_content,
             "markdown": cv_content,
-            "chat_history": messages + [{"role": "assistant", "content": clean_reply}],
         }
         if current_cv:
             return {
@@ -159,10 +158,13 @@ class ChatCVUseCase:
                 )
             else:
                 cv_entity = built_payload
+                cv_entity.conversation_id = cv_entity.id
                 await self.repo.create(cv_entity)
             cv_id = cv_entity.id
             
             ai_reply = clean_reply
+            full_chat = messages + [{"role": "assistant", "content": ai_reply}]
+            await self.repo.save_chat_messages(cv_entity.conversation_id, user_id, full_chat)
             
         return ai_reply, cv_id
 
@@ -252,7 +254,11 @@ class ChatCVUseCase:
                 )
             else:
                 cv_entity = built_payload
+                cv_entity.conversation_id = cv_entity.id
                 await self.repo.create(cv_entity)
+            
+            full_chat = messages + [{"role": "assistant", "content": clean_reply}]
+            await self.repo.save_chat_messages(cv_entity.conversation_id, user_id, full_chat)
             return cv_entity.id
 
         stream = self.ai.chat_interaction_stream(chat_messages)

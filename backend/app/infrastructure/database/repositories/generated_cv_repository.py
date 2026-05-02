@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities.generated_cv import GeneratedCV
 from app.application.interfaces.repositories import IGeneratedCVRepository
-from app.infrastructure.database.models import GeneratedCVModel
+from app.infrastructure.database.models import GeneratedCVModel, ChatSessionModel
 
 
 class GeneratedCVRepository(IGeneratedCVRepository):
@@ -16,6 +16,36 @@ class GeneratedCVRepository(IGeneratedCVRepository):
 
     def __init__(self, session: AsyncSession):
         self._session = session
+
+    async def _inject_chat_history(self, db_model: GeneratedCVModel) -> GeneratedCVModel:
+        if not db_model:
+            return None
+        result = await self._session.execute(
+            select(ChatSessionModel.messages).where(
+                ChatSessionModel.conversation_id == db_model.conversation_id
+            )
+        )
+        messages = result.scalar_one_or_none() or []
+        content = dict(db_model.generated_content) if db_model.generated_content else {}
+        content["chat_history"] = messages
+        db_model.generated_content = content
+        return db_model
+
+    async def save_chat_messages(self, conversation_id: UUID, user_id: UUID, messages: list) -> None:
+        result = await self._session.execute(
+            select(ChatSessionModel).where(ChatSessionModel.conversation_id == conversation_id)
+        )
+        session_model = result.scalar_one_or_none()
+        if not session_model:
+            session_model = ChatSessionModel(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                messages=messages
+            )
+            self._session.add(session_model)
+        else:
+            session_model.messages = messages
+        await self._session.flush()
 
     async def create(self, cv: GeneratedCV) -> GeneratedCV:
         db_model = GeneratedCVModel(
@@ -72,6 +102,8 @@ class GeneratedCVRepository(IGeneratedCVRepository):
             .where(GeneratedCVModel.id == cv_id, GeneratedCVModel.deleted_at.is_(None))
         )
         db_model = result.scalar_one_or_none()
+        if db_model:
+            db_model = await self._inject_chat_history(db_model)
         return self._to_entity(db_model) if db_model else None
 
     async def list_by_user_id(
