@@ -1,0 +1,16 @@
+Bạn là chuyên gia viết CV. Hãy tạo một mẫu CV chuyên nghiệp dựa trên các thông tin sau:
+
+- Vị trí ứng tuyển: $job_title
+- Cấp độ: $level
+- Định dạng đầu ra: $output_format. Nội dung phải $format_guide
+
+JD tham chiếu:
+---
+$jd_text
+---
+$profile_section
+Yêu cầu:
+- Bố cục: Thông tin cá nhân, Mục tiêu nghề nghiệp, Kỹ năng, Kinh nghiệm, Dự án, Học vấn.
+- Dùng placeholder rõ ràng cho các trường thiếu dữ liệu (ví dụ "[Họ và tên]", "[Email]", "[Tên công ty]", "[Năm]") thay vì bịa thông tin cá nhân, trường học, ngành học, thành phố, GPA, hay mốc tháng/năm cụ thể.
+- Bullet point trong "Kỹ năng" và "Kinh nghiệm" phải bám sát JD; ưu tiên động từ hành động và (khi có thể) chỉ số định lượng.
+- Chỉ trả về nội dung CV ở định dạng yêu cầu, không kèm giải thích.

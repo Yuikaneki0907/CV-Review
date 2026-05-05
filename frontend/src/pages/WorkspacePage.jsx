@@ -1,18 +1,25 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
+  createAnalysisFromGeneratedCV,
+  createChatSession,
   createGeneratedCVVersion,
   downloadGeneratedCV,
+  exportPreviewDocx,
+  getChatSession,
+  getLatestConversationCV,
   getGeneratedCV,
   getGeneratedCVVersions,
+  importGeneratedCVVersion,
   streamChatAnalysis,
   streamChatCVGeneration,
+  updateChatSessionMessages,
 } from '../api';
 import { useAuth } from '../AuthContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid';
-import { DocumentCheckIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { DocumentCheckIcon } from '@heroicons/react/24/outline';
 import CvWysiwygEditor from '../components/CvWysiwygEditor';
 import {
   clearWorkspaceDraft,
@@ -21,7 +28,6 @@ import {
   saveWorkspaceDraft,
 } from '../utils/workspaceDraft';
 import {
-  getInterviewQuestionNote,
   getJdEvaluationAdvice,
   getJdEvaluationSummary,
   getSalaryAdvice,
@@ -37,29 +43,13 @@ const TEMPLATE_TITLES = {
   fresh_graduate: 'Sinh viên mới tốt nghiệp',
 };
 
-const OUTPUT_FORMAT_OPTIONS = [
-  { value: 'markdown', label: 'Markdown' },
-  { value: 'docx', label: 'DOCX' },
-];
-
-const OUTPUT_FORMAT_LABELS = {
-  markdown: 'Markdown',
-  docx: 'DOCX',
-};
-
-const LAYOUT_MODES = [
-  { value: 'document', label: 'Ưu tiên CV' },
-  { value: 'balanced', label: 'Cân bằng' },
-  { value: 'chat', label: 'Ưu tiên chat' },
-];
-
 const EMPTY_CHAT_PROMPTS = [
   'Rút gọn phần Summary theo hướng quản lý hơn',
   'Viết lại kinh nghiệm để nổi bật vai trò Kỹ sư Backend',
   'Tối ưu CV này theo JD tôi sắp dán vào',
 ];
 
-const CHAT_INPUT_MIN_HEIGHT = 72;
+const CHAT_INPUT_MIN_HEIGHT = 52;
 const CHAT_INPUT_MAX_HEIGHT = 170;
 
 const resizeChatInput = (textarea) => {
@@ -123,15 +113,152 @@ const parseFilenameFromDisposition = (headerValue) => {
   return basicMatch?.[1]?.trim() || null;
 };
 
-const buildClientExportFilename = (title, ext) => {
-  const normalized = String(title || 'generated_cv')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 60);
+const GENERIC_CONVERSATION_TITLES = new Set([
+  'cv từ chatbot',
+  'cv tu chatbot',
+  'cv đã tạo',
+  'cv da tao',
+  'generated_cv',
+  'generated cv',
+  'cuộc trò chuyện mới',
+  'cuoc tro chuyen moi',
+]);
 
-  return `${normalized || 'generated_cv'}.${ext}`;
+const normalizeConversationTitleText = (value, limit = 72) => String(value || '')
+  .replace(/```[\s\S]*?```/g, ' ')
+  .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+  .replace(/[*_`>#]+/g, ' ')
+  .replace(/https?:\/\/\S+/g, ' ')
+  .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .replace(/^[-:.,;]+|[-:.,;]+$/g, '')
+  .slice(0, limit)
+  .replace(/[-:.,;]+$/g, '');
+
+const isGenericConversationTitle = (value) => {
+  const normalized = normalizeConversationTitleText(value, 120).toLowerCase();
+  return !normalized || GENERIC_CONVERSATION_TITLES.has(normalized);
+};
+
+const toRoleTitle = (value) => {
+  const cleaned = normalizeConversationTitleText(value, 64)
+    .replace(/\b(mà|ma|và|va|với|voi|theo|cho|của|cua|này|nay|đó|do|nó|no|match|khớp|khop)\b.*$/i, '')
+    .trim();
+  if (!cleaned) return '';
+
+  const aliasMap = {
+    aie: 'AI Engineer',
+    'ai engineer': 'AI Engineer',
+    'ai intern': 'AI Intern',
+    'ai/ml intern': 'AI/ML Intern',
+    'ml intern': 'ML Intern',
+    'backend intern': 'Backend Intern',
+    'frontend intern': 'Frontend Intern',
+    'software engineer': 'Software Engineer',
+    'software engineer intern': 'Software Engineer Intern',
+    'data analyst': 'Data Analyst',
+    'data analyst intern': 'Data Analyst Intern',
+  };
+  const lowered = cleaned.toLowerCase();
+  if (aliasMap[lowered]) return aliasMap[lowered];
+  const aieMatch = lowered.match(/^(?:(intern|fresher|junior|senior)\s+)?aie$/);
+  if (aieMatch) {
+    const level = aieMatch[1];
+    return level ? `${level.charAt(0).toUpperCase() + level.slice(1)} AI Engineer` : 'AI Engineer';
+  }
+
+  return cleaned.split(/\s+/).map((word) => {
+    const lowerWord = word.toLowerCase();
+    if (['ai', 'ml', 'qa', 'ba', 'ui', 'ux', 'jd', 'cv'].includes(lowerWord)) return lowerWord.toUpperCase();
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }).join(' ');
+};
+
+const extractRoleTitle = (text) => {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+
+  const rolePatterns = [
+    /\b(?:ai|machine learning|ml|data|backend|frontend|fullstack|full-stack|software|web|mobile|devops|qa|tester|business analyst|ba)\s+(?:engineer|developer|intern|fresher|analyst|specialist)\b/i,
+    /\b(?:intern|fresher|junior|middle|mid-level|senior)\s+(?:ai|machine learning|ml|data|backend|frontend|fullstack|full-stack|software|web|mobile|devops|qa|tester|developer|engineer|analyst)\b/i,
+    /\b(?:java|python|react|node(?:\.js)?|php|\.net|c#|golang|android|ios)\s+(?:developer|engineer|intern|fresher)\b/i,
+  ];
+  for (const pattern of rolePatterns) {
+    const match = normalized.match(pattern);
+    if (match?.[0]) return toRoleTitle(match[0]);
+  }
+
+  const markerMatch = normalized.match(/(?:role|vị trí|vi tri|ứng tuyển|ung tuyen|apply|cho anh cv|tạo cv|tao cv|viết cv|viet cv)\s+(?:là|la|cho|role|vị trí|vi tri)?\s*[:-]?\s*([a-zA-ZÀ-ỹ0-9+#./ -]{3,60})/i);
+  if (markerMatch?.[1]) {
+    const candidate = toRoleTitle(markerMatch[1]);
+    if (candidate && candidate.split(/\s+/).length <= 6) return candidate;
+  }
+
+  return '';
+};
+
+const buildFirstQueryTitle = (messages) => {
+  if (!Array.isArray(messages)) return '';
+  const firstUserMessage = messages.find((message) => (
+    message?.role === 'user' && String(message.content || '').trim()
+  ));
+  if (!firstUserMessage) return '';
+
+  const lines = String(firstUserMessage.content || '')
+    .split(/\r?\n/)
+    .map((line) => normalizeConversationTitleText(line, 180))
+    .filter(Boolean);
+  return lines[0] || normalizeConversationTitleText(firstUserMessage.content, 180);
+};
+
+const buildConversationTitle = (messages, fallback = '') => {
+  const firstQueryTitle = buildFirstQueryTitle(messages);
+  if (firstQueryTitle) return firstQueryTitle;
+
+  if (!isGenericConversationTitle(fallback)) {
+    const fallbackTitle = toRoleTitle(fallback);
+    if (fallbackTitle.toLowerCase().includes('mẫu cv')) {
+      return normalizeConversationTitleText(fallbackTitle, 72);
+    }
+    return normalizeConversationTitleText(
+      fallbackTitle.toLowerCase().startsWith('cv ') ? fallbackTitle : `CV ${fallbackTitle}`,
+      72
+    );
+  }
+
+  const userMessages = Array.isArray(messages)
+    ? messages
+      .filter((message) => message?.role === 'user' && String(message.content || '').trim())
+      .map((message) => String(message.content || '').trim())
+    : [];
+  if (!userMessages.length) return 'Cuộc trò chuyện mới';
+
+  const combined = userMessages.join('\n');
+  const lowered = combined.toLowerCase();
+
+  if (lowered.includes('jd') && lowered.includes('cv') && ['match', 'khớp', 'khop', 'tương ứng', 'tuong ung'].some((token) => lowered.includes(token))) {
+    return 'Tạo JD và CV khớp nhau';
+  }
+  if (['phân tích cv', 'phan tich cv', 'phân tích tài liệu', 'phan tich tai lieu'].some((token) => lowered.includes(token))
+    && ['jd', 'job', 'mô tả', 'mo ta'].some((token) => lowered.includes(token))) {
+    return 'Phân tích CV theo JD';
+  }
+  if (lowered.includes('tài liệu đính kèm') || lowered.includes('tai lieu dinh kem')) return 'Xử lý tài liệu đính kèm';
+  if (['mẫu cv', 'mau cv', 'template cv', 'các mẫu', 'cac mau'].some((token) => lowered.includes(token))) return 'Tư vấn mẫu CV';
+
+  const roleTitle = extractRoleTitle(combined);
+  if (roleTitle && ['cv', 'resume', 'hồ sơ', 'ho so', 'ứng tuyển', 'ung tuyen'].some((token) => lowered.includes(token))) {
+    return roleTitle.toLowerCase().startsWith('cv ') ? roleTitle : `CV ${roleTitle}`;
+  }
+  if (['gen cv', 'tạo cv', 'tao cv', 'viết cv', 'viet cv'].some((token) => lowered.includes(token))) return 'Tạo CV bằng AI';
+  if (['sửa cv', 'sua cv', 'chỉnh cv', 'chinh cv', 'rewrite', 'cập nhật', 'cap nhat'].some((token) => lowered.includes(token))) return 'Chỉnh sửa CV';
+  if (['tôi tên', 'toi ten', 'anh tên', 'em tên', 'học trường', 'hoc truong', 'chuyên ngành', 'chuyen nganh', 'kinh nghiệm', 'kinh nghiem', 'dự án', 'du an'].some((token) => lowered.includes(token))) {
+    return 'Hoàn thiện thông tin CV';
+  }
+
+  const shortFallback = normalizeConversationTitleText(userMessages[0], 48);
+  return shortFallback && shortFallback.split(/\s+/).length <= 8 ? shortFallback : 'Cuộc trò chuyện CV';
 };
 
 const downloadBlob = (blob, filename) => {
@@ -150,6 +277,10 @@ export default function WorkspacePage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useAuth();
+  const routeConversationId = useMemo(
+    () => new URLSearchParams(location.search).get('conversation'),
+    [location.search]
+  );
 
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -159,16 +290,17 @@ export default function WorkspacePage() {
   const [editableContentFormat, setEditableContentFormat] = useState('markdown');
   const [editableMarkdown, setEditableMarkdown] = useState('');
   const [documentDirty, setDocumentDirty] = useState(false);
-  const [restoredDraft, setRestoredDraft] = useState(false);
   const [outputFormat, setOutputFormat] = useState('markdown');
   const [exporting, setExporting] = useState(false);
+  const [analyzingCurrentCv, setAnalyzingCurrentCv] = useState(false);
   const [savingEdits, setSavingEdits] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [chatStatus, setChatStatus] = useState(null);
   const [versionHistory, setVersionHistory] = useState([]);
-  const [layoutMode, setLayoutMode] = useState('balanced');
+  const [chatPaneWidth, setChatPaneWidth] = useState(null);
   const [staticTemplateTitle, setStaticTemplateTitle] = useState('');
   const [editorInstanceKey, setEditorInstanceKey] = useState('empty');
+  const [conversationId, setConversationId] = useState(null);
 
   // ── CV Analysis attachment state ──────────────────
   const [attachedCvFile, setAttachedCvFile] = useState(null);
@@ -184,15 +316,18 @@ export default function WorkspacePage() {
   const [templateId, setTemplateId] = useState(null);
 
   const messagesEndRef = useRef(null);
+  const workspaceRef = useRef(null);
+  const resizeCleanupRef = useRef(null);
   const initializedNav = useRef(null);
   const hydratedDraftRef = useRef(false);
   const mountedRef = useRef(false);
-  const scope = getDraftScope(id);
+  const scope = id ? getDraftScope(id) : (routeConversationId ? `conversation:${routeConversationId}` : 'new');
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      resizeCleanupRef.current?.();
     };
   }, []);
 
@@ -207,7 +342,8 @@ export default function WorkspacePage() {
 
   // Handle initialization
   useEffect(() => {
-    const routeTemplateId = new URLSearchParams(location.search).get('template');
+    const searchParams = new URLSearchParams(location.search);
+    const routeTemplateId = searchParams.get('template');
     const routeTemplateContent = routeTemplateId ? TEMPLATE_SKELETONS[routeTemplateId] || '' : '';
     const navTemplateIdFromState = location.state?.templateId || null;
     const navTemplateContentFromState = location.state?.templateContent || '';
@@ -220,12 +356,13 @@ export default function WorkspacePage() {
         ? `template:${activeTemplateId || 'custom'}:${location.search || location.key}`
         : location.state?.initialPrompt
           ? `prompt:${location.key}`
-          : `empty:${location.key}`;
+          : routeConversationId
+            ? `conversation:${routeConversationId}`
+            : `empty:${location.key}`;
 
     if (initializedNav.current === navKey) return;
     initializedNav.current = navKey;
     hydratedDraftRef.current = false;
-    setRestoredDraft(false);
     setAnalysisMode(false);
     setAnalysisSteps({});
     setAnalysisResults(null);
@@ -234,6 +371,7 @@ export default function WorkspacePage() {
     setAttachedJdText('');
     setChatStatus(null);
     setVersionHistory([]);
+    setConversationId(routeConversationId || null);
 
     const initWorkspace = async () => {
       const draft = user?.id ? loadWorkspaceDraft(user.id, scope) : null;
@@ -244,6 +382,7 @@ export default function WorkspacePage() {
         try {
           const res = await getGeneratedCV(id);
           setTemplateId(null);
+          setConversationId(res.data.conversation_id || null);
           setStaticTemplateTitle('');
           setEditorInstanceKey(`doc:${res.data.id}`);
           setCvDocument(res.data);
@@ -256,15 +395,14 @@ export default function WorkspacePage() {
 
           const serverMessages = res.data.generated_content?.chat_history || [];
           if (!location.state?.keepMessages) {
-            if (draft?.messages?.length) {
+            if (draft?.pending && draft?.messages?.length) {
               setMessages(draft.messages);
               setInputValue(draft.inputValue || '');
               setLoading(Boolean(draft.pending));
               setOutputFormat(normalizeOutputFormat(draft.outputFormat || serverFormat));
-              setRestoredDraft(true);
             } else {
               setMessages(serverMessages);
-              setInputValue('');
+              setInputValue(draft?.inputValue || '');
               setLoading(false);
               setOutputFormat(serverFormat);
             }
@@ -327,6 +465,54 @@ export default function WorkspacePage() {
 
         // Send to backend
         handleChatTurn(initialMsgs, 'markdown', navTemplateId);
+      } else if (routeConversationId) {
+        setTemplateId(null);
+        setStaticTemplateTitle('');
+        setEditorInstanceKey(`conversation:${routeConversationId}`);
+        try {
+          const res = await getChatSession(routeConversationId);
+          let latestConversationCv = null;
+          try {
+            const latestCvRes = await getLatestConversationCV(routeConversationId);
+            latestConversationCv = latestCvRes?.data || null;
+          } catch {
+            // A conversation can exist without any generated CV yet.
+            latestConversationCv = null;
+          }
+
+          setConversationId(res.data.conversation_id || routeConversationId);
+          const serverMessages = Array.isArray(res.data.messages) ? res.data.messages : [];
+          const draftMessages = Array.isArray(draft?.messages) ? draft.messages : [];
+          setMessages(draftMessages.length > 0 ? draftMessages : serverMessages);
+          setInputValue('');
+          setCvDocument(latestConversationCv);
+          if (latestConversationCv) {
+            setEditorInstanceKey(`doc:${latestConversationCv.id}`);
+            const editorState = extractEditorStateFromDocument(latestConversationCv);
+            setEditableContent(editorState.value);
+            setEditableContentFormat(editorState.valueFormat);
+            setEditableMarkdown(editorState.markdown);
+            setOutputFormat(inferOutputFormatFromDocument(latestConversationCv, draft?.outputFormat || 'markdown'));
+          } else {
+            setEditableContent(draft?.previewContent || draft?.previewMarkdown || '');
+            setEditableContentFormat(draft?.previewFormat || 'markdown');
+            setEditableMarkdown(draft?.previewMarkdown || draft?.previewContent || '');
+            setOutputFormat(normalizeOutputFormat(draft?.outputFormat || 'markdown'));
+          }
+          setDocumentDirty(false);
+          setLoading(false);
+        } catch (error) {
+          console.error('Failed to load chat session:', error);
+          setMessages(draft?.messages || []);
+          setInputValue('');
+          setCvDocument(null);
+          setEditableContent(draft?.previewContent || draft?.previewMarkdown || '');
+          setEditableContentFormat(draft?.previewFormat || 'markdown');
+          setEditableMarkdown(draft?.previewMarkdown || draft?.previewContent || '');
+          setDocumentDirty(false);
+          setLoading(false);
+          setOutputFormat(normalizeOutputFormat(draft?.outputFormat || 'markdown'));
+        }
       } else {
         // Empty workspace or restore unfinished draft
         setTemplateId(null);
@@ -339,17 +525,22 @@ export default function WorkspacePage() {
           return;
         }
 
-        if (draft?.messages?.length || draft?.inputValue?.trim() || draft?.pending) {
+        if (
+          draft?.messages?.length ||
+          draft?.inputValue?.trim() ||
+          draft?.pending ||
+          draft?.previewContent?.trim() ||
+          draft?.previewMarkdown?.trim()
+        ) {
           setMessages(draft.messages || []);
           setInputValue(draft.inputValue || '');
           setCvDocument(null);
-          setEditableContent('');
-          setEditableContentFormat('markdown');
-          setEditableMarkdown('');
+          setEditableContent(draft.previewContent || draft.previewMarkdown || '');
+          setEditableContentFormat(draft.previewFormat || 'markdown');
+          setEditableMarkdown(draft.previewMarkdown || draft.previewContent || '');
           setDocumentDirty(false);
           setLoading(Boolean(draft.pending));
           setOutputFormat(normalizeOutputFormat(draft.outputFormat));
-          setRestoredDraft(true);
         } else {
           setMessages([]);
           setInputValue('');
@@ -381,8 +572,23 @@ export default function WorkspacePage() {
       pending: loading,
       generatedCvId: cvDocument?.id || null,
       outputFormat,
+      previewContent: editableContent,
+      previewFormat: editableContentFormat,
+      previewMarkdown: editableMarkdown,
     });
-  }, [user?.id, scope, messages, inputValue, cvDocument?.base_profile_data?.job_title, loading, outputFormat]);
+  }, [
+    user?.id,
+    scope,
+    messages,
+    inputValue,
+    cvDocument?.base_profile_data?.job_title,
+    cvDocument?.id,
+    loading,
+    outputFormat,
+    editableContent,
+    editableContentFormat,
+    editableMarkdown,
+  ]);
 
   const prevCvDocIdRef = useRef(undefined);
   useEffect(() => {
@@ -407,7 +613,7 @@ export default function WorkspacePage() {
     setEditableMarkdown(editorState.markdown);
     setDocumentDirty(false);
     setSaveMessage('');
-  }, [cvDocument?.id, cvDocument?.generated_content?.content, cvDocument?.generated_content?.markdown, cvDocument?.generated_content?.html, cvDocument?.generated_content?.import_preview_format]);
+  }, [cvDocument]);
 
   useEffect(() => {
     let mounted = true;
@@ -436,6 +642,21 @@ export default function WorkspacePage() {
   const [streamAiReply, setStreamAiReply] = useState('');
   const [streamCvText, setStreamCvText] = useState('');
 
+  const ensureConversationId = async () => {
+    if (cvDocument?.conversation_id) return cvDocument.conversation_id;
+    if (conversationId) return conversationId;
+    const res = await createChatSession();
+    const nextConversationId = res.data.conversation_id;
+    setConversationId(nextConversationId);
+    return nextConversationId;
+  };
+
+  const persistChatMessages = async (nextMessages) => {
+    const activeConversationId = await ensureConversationId();
+    await updateChatSessionMessages(activeConversationId, nextMessages);
+    return activeConversationId;
+  };
+
   const handleChatTurn = async (currentMessages, formatOverride = outputFormat, templateOverride = templateId) => {
     if (!user?.id) return;
     setLoading(true);
@@ -453,12 +674,16 @@ export default function WorkspacePage() {
       let finalReply = '';
       let idcv = null;
       let finalcvtext = '';
+      let activeConversationId = await ensureConversationId();
       const activeCvId = cvDocument?.id || null;
 
       await streamChatCVGeneration(currentMessages, normalizeOutputFormat(formatOverride), (val) => {
         const { event, data } = val;
 
-        if (event === 'status') {
+        if (event === 'conversation_id') {
+          activeConversationId = data;
+          setConversationId(data);
+        } else if (event === 'status') {
           setChatStatus(data);
         } else if (event === 'chat_chunk') {
           finalReply += data;
@@ -477,7 +702,7 @@ export default function WorkspacePage() {
         } else if (event === 'error') {
           console.error("AI Error:", data);
         }
-      }, templateOverride, activeCvId);
+      }, templateOverride, activeCvId, activeConversationId);
 
       const finalMessages = [...currentMessages, { role: 'assistant', content: finalReply || 'Mình đã xử lý xong yêu cầu.' }];
 
@@ -494,6 +719,7 @@ export default function WorkspacePage() {
           const cvRes = await getGeneratedCV(idcv);
           loadedCv = cvRes.data;
           if (mountedRef.current) {
+            setConversationId(loadedCv.conversation_id || activeConversationId);
             setStaticTemplateTitle('');
             setEditorInstanceKey(`doc:${loadedCv.id}`);
             setCvDocument(loadedCv);
@@ -509,6 +735,9 @@ export default function WorkspacePage() {
 
         if (user?.id) {
           const nextScope = getDraftScope(idcv);
+          const previewState = loadedCv
+            ? extractEditorStateFromDocument(loadedCv)
+            : { value: finalcvtext, valueFormat: 'markdown', markdown: finalcvtext };
           saveWorkspaceDraft({
             userId: user.id,
             scope: nextScope,
@@ -518,6 +747,9 @@ export default function WorkspacePage() {
             pending: false,
             generatedCvId: idcv,
             outputFormat: normalizeOutputFormat(formatOverride),
+            previewContent: previewState.value,
+            previewFormat: previewState.valueFormat,
+            previewMarkdown: previewState.markdown,
           });
           if (scope !== nextScope) {
             clearWorkspaceDraft(user.id, scope);
@@ -529,6 +761,13 @@ export default function WorkspacePage() {
           navigate(`/workspace/${idcv}`, { replace: true, state: { keepMessages: true } });
         }
       } else {
+        if (activeConversationId && mountedRef.current) {
+          setConversationId(activeConversationId);
+          const nextSearch = `?conversation=${activeConversationId}`;
+          if (!id && location.search !== nextSearch) {
+            navigate(`/workspace${nextSearch}`, { replace: true, state: { keepMessages: true } });
+          }
+        }
         // Save the draft state
         saveWorkspaceDraft({
           userId: user.id,
@@ -538,6 +777,9 @@ export default function WorkspacePage() {
           title: cvDocument?.base_profile_data?.job_title || '',
           pending: false,
           outputFormat,
+          previewContent: finalcvtext || editableContent,
+          previewFormat: finalcvtext ? 'markdown' : editableContentFormat,
+          previewMarkdown: finalcvtext || editableMarkdown,
         });
       }
     } catch (e) {
@@ -555,14 +797,174 @@ export default function WorkspacePage() {
 
   // ── CV Analysis handler ───────────────────────────
   const handleAnalyze = async () => {
-    if (!attachedCvFile || !attachedJdText.trim() || loading) return;
+    const analysisText = (showAttachPanel ? inputValue : attachedJdText).trim();
+    const hasAttachedText = analysisText.length > 0;
+    const hasAttachedFile = Boolean(attachedCvFile);
+    if (loading || (!hasAttachedText && !hasAttachedFile)) return;
+
+    if (cvDocument?.id) {
+      const fileLabel = attachedCvFile ? `\n\n**Tài liệu đính kèm:** ${attachedCvFile.name}` : '';
+      const userContent = attachedCvFile && !hasAttachedText
+        ? `Xử lý tài liệu đính kèm cho CV hiện tại:${fileLabel}`
+        : `Phân tích CV hiện tại theo JD sau:${fileLabel}${hasAttachedText ? `\n\n${analysisText}` : ''}`;
+      const newMsgs = [
+        ...messages,
+        {
+          role: 'user',
+          content: userContent,
+        },
+      ];
+      setMessages(newMsgs);
+      setLoading(true);
+      setAnalyzingCurrentCv(true);
+      setChatStatus({ state: 'analysis', label: 'Đang tạo phiên phân tích từ CV hiện tại...' });
+      setShowAttachPanel(false);
+      let activeDocument = cvDocument;
+
+      try {
+        if (hasUnsavedEdits) {
+          const savedDocument = await handleSaveEdits();
+          if (!savedDocument) return;
+          activeDocument = savedDocument;
+        }
+        const res = await createAnalysisFromGeneratedCV(
+          activeDocument.id,
+          analysisText,
+          attachedCvFile
+        );
+        const analysisId = res.data.id;
+        const finalMsgs = [
+          ...newMsgs,
+          {
+            role: 'assistant',
+            content: `Đã tạo phiên phân tích từ CV hiện tại. [Xem kết quả phân tích](/analysis/${analysisId})`,
+            analysisId,
+          },
+        ];
+        setMessages(finalMsgs);
+        await persistChatMessages(finalMsgs);
+        if (user?.id) {
+          saveWorkspaceDraft({
+            userId: user.id,
+            scope: getDraftScope(activeDocument.id),
+            messages: finalMsgs,
+            inputValue: '',
+            title: activeDocument.base_profile_data?.job_title || '',
+            pending: false,
+            generatedCvId: activeDocument.id,
+            outputFormat: documentFormat,
+            previewContent: editableContent,
+            previewFormat: editableContentFormat,
+            previewMarkdown: editableMarkdown,
+          });
+        }
+        setSaveMessage('Đã tạo phiên phân tích. Bạn có thể mở link kết quả ngay trong đoạn chat.');
+      } catch (error) {
+        console.error('Failed to analyze generated CV:', error);
+        const detail = error.response?.data?.detail || '';
+        const shouldImportAttachedCv = attachedCvFile && detail.includes('có vẻ là CV');
+        let finalMsgs = [];
+
+        if (shouldImportAttachedCv) {
+          try {
+            setChatStatus({ state: 'importing_cv', label: 'Đang thay CV đính kèm vào workspace hiện tại...' });
+            const importRes = await importGeneratedCVVersion(activeDocument.id, attachedCvFile);
+            const importedDocument = importRes.data;
+            const editorState = extractEditorStateFromDocument(importedDocument);
+            finalMsgs = [
+              ...newMsgs,
+              {
+                role: 'assistant',
+                content: `Tài liệu đính kèm là CV. Mình đã thay CV này vào workspace hiện tại và lưu thành v${importedDocument.version}.`,
+              },
+            ];
+            setCvDocument(importedDocument);
+            setStaticTemplateTitle('');
+            setEditorInstanceKey(`doc:${importedDocument.id}`);
+            setEditableContent(editorState.value);
+            setEditableContentFormat(editorState.valueFormat);
+            setEditableMarkdown(editorState.markdown);
+            setDocumentDirty(false);
+            setOutputFormat(inferOutputFormatFromDocument(importedDocument, documentFormat));
+            setMessages(finalMsgs);
+            await persistChatMessages(finalMsgs);
+            if (user?.id) {
+              const nextScope = getDraftScope(importedDocument.id);
+              saveWorkspaceDraft({
+                userId: user.id,
+                scope: nextScope,
+                messages: finalMsgs,
+                inputValue: '',
+                title: importedDocument.base_profile_data?.job_title || '',
+                pending: false,
+                generatedCvId: importedDocument.id,
+                outputFormat: inferOutputFormatFromDocument(importedDocument, documentFormat),
+                previewContent: editorState.value,
+                previewFormat: editorState.valueFormat,
+                previewMarkdown: editorState.markdown,
+              });
+              if (scope !== nextScope) {
+                clearWorkspaceDraft(user.id, scope);
+              }
+            }
+            notifyGeneratedCvHistoryChanged();
+            if (importedDocument.id && importedDocument.id !== id) {
+              navigate(`/workspace/${importedDocument.id}`, { replace: true, state: { keepMessages: true } });
+            }
+            return;
+          } catch (importError) {
+            console.error('Failed to import attached CV into workspace:', importError);
+            finalMsgs = [
+              ...newMsgs,
+              {
+                role: 'assistant',
+                content: importError.response?.data?.detail || 'Tài liệu đính kèm là CV nhưng chưa thể thay vào workspace hiện tại.',
+              },
+            ];
+          }
+        } else {
+          finalMsgs = [
+            ...newMsgs,
+            { role: 'assistant', content: detail || 'Không thể tạo phiên phân tích từ CV này.' },
+          ];
+        }
+
+        setMessages(finalMsgs);
+        await persistChatMessages(finalMsgs);
+        if (user?.id) {
+          saveWorkspaceDraft({
+            userId: user.id,
+            scope: getDraftScope(activeDocument?.id || cvDocument.id),
+            messages: finalMsgs,
+            inputValue: '',
+            title: activeDocument?.base_profile_data?.job_title || cvDocument.base_profile_data?.job_title || '',
+            pending: false,
+            generatedCvId: activeDocument?.id || cvDocument.id,
+            outputFormat: documentFormat,
+            previewContent: editableContent,
+            previewFormat: editableContentFormat,
+            previewMarkdown: editableMarkdown,
+          });
+        }
+      } finally {
+        setLoading(false);
+        setAnalyzingCurrentCv(false);
+        setChatStatus(null);
+        setAttachedCvFile(null);
+        setAttachedJdText('');
+        setInputValue('');
+      }
+      return;
+    }
+
+    if (!attachedCvFile || !analysisText) return;
 
     const cvFileName = attachedCvFile.name;
     const newMsgs = [
       ...messages,
       {
         role: 'user',
-        content: `📎 Phân tích CV: **${cvFileName}**\n\n**Job Description:**\n${attachedJdText.trim()}`,
+        content: `Phân tích tài liệu: **${cvFileName}**\n\n**Job Description:**\n${analysisText}`,
       },
     ];
     setMessages(newMsgs);
@@ -572,9 +974,10 @@ export default function WorkspacePage() {
     setAnalysisSteps({});
     setAnalysisResults(null);
     setShowAttachPanel(false);
+    let finalMessagesToPersist = null;
 
     try {
-      await streamChatAnalysis(attachedCvFile, attachedJdText, null, (val) => {
+      await streamChatAnalysis(attachedCvFile, analysisText, null, (val) => {
         const { event, data } = val;
 
         if (event === 'analysis_step') {
@@ -599,36 +1002,50 @@ export default function WorkspacePage() {
             ...newMsgs,
             {
               role: 'assistant',
-              content: `✅ Phân tích CV hoàn tất! [Xem chi tiết →](/analysis/${analysisId})`,
+              content: `Phân tích CV hoàn tất. [Xem chi tiết](/analysis/${analysisId})`,
               analysisId,
             },
           ];
           setMessages(finalMsgs);
+          finalMessagesToPersist = finalMsgs;
         } else if (event === 'analysis_error') {
-          setMessages([
+          finalMessagesToPersist = [
             ...newMsgs,
-            { role: 'assistant', content: `❌ Phân tích thất bại: ${data.error}` },
-          ]);
+            { role: 'assistant', content: `Phân tích thất bại: ${data.error}` },
+          ];
+          setMessages(finalMessagesToPersist);
         }
       });
+      if (finalMessagesToPersist) {
+        await persistChatMessages(finalMessagesToPersist);
+      }
     } catch (e) {
       console.error('Analysis failed:', e);
-      setMessages([
+      finalMessagesToPersist = [
         ...newMsgs,
         { role: 'assistant', content: 'Xin lỗi, đã có lỗi kết nối xảy ra. Vui lòng thử lại.' },
-      ]);
+      ];
+      setMessages(finalMessagesToPersist);
+      await persistChatMessages(finalMessagesToPersist);
     } finally {
       setLoading(false);
       setAnalysisMode(false);
       setAttachedCvFile(null);
       setAttachedJdText('');
+      setInputValue('');
     }
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // If files are attached, run analysis instead of normal chat
-    if (attachedCvFile && attachedJdText.trim()) {
+    // In attachment mode, the composer text is used as JD/context for analysis.
+    if (
+      showAttachPanel &&
+      (
+        (cvDocument && (attachedCvFile || inputValue.trim())) ||
+        (!cvDocument && attachedCvFile && inputValue.trim())
+      )
+    ) {
       handleAnalyze();
       return;
     }
@@ -661,6 +1078,42 @@ export default function WorkspacePage() {
       : 'Tài liệu sẽ xuất hiện tại đây sau khi bạn tạo hoặc import CV.';
   const showChatStarter = !messages.length && !streamAiReply && !loading && !analysisMode && !analysisResults;
 
+  const startWorkspaceResize = (event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const container = workspaceRef.current;
+    if (!container) return;
+
+    event.preventDefault();
+    resizeCleanupRef.current?.();
+
+    const bounds = container.getBoundingClientRect();
+    const minChat = Math.min(420, Math.max(320, bounds.width * 0.35));
+    const minPreview = Math.min(520, Math.max(360, bounds.width * 0.32));
+
+    const handleMove = (moveEvent) => {
+      const nextWidth = moveEvent.clientX - bounds.left;
+      const clampedWidth = Math.min(
+        Math.max(nextWidth, minChat),
+        Math.max(minChat, bounds.width - minPreview)
+      );
+      setChatPaneWidth(Math.round(clampedWidth));
+    };
+
+    const stopResize = () => {
+      document.body.classList.remove('workspace-resizing');
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', stopResize);
+      window.removeEventListener('pointercancel', stopResize);
+      resizeCleanupRef.current = null;
+    };
+
+    document.body.classList.add('workspace-resizing');
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', stopResize);
+    window.addEventListener('pointercancel', stopResize);
+    resizeCleanupRef.current = stopResize;
+  };
+
   const handleSaveEdits = async () => {
     if (!cvDocument?.id || savingEdits) return null;
     if (!hasUnsavedEdits) return cvDocument;
@@ -690,6 +1143,9 @@ export default function WorkspacePage() {
           pending: false,
           generatedCvId: res.data.id,
           outputFormat: documentFormat,
+          previewContent: editorState.value,
+          previewFormat: editorState.valueFormat,
+          previewMarkdown: editorState.markdown,
         });
         if (scope !== nextScope) {
           clearWorkspaceDraft(user.id, scope);
@@ -712,43 +1168,31 @@ export default function WorkspacePage() {
   const handleExport = async () => {
     if (exporting) return;
 
-    const exportFormat = cvDocument
-      ? inferOutputFormatFromDocument(cvDocument, documentFormat)
-      : normalizeOutputFormat(documentFormat);
-    const fallbackExt = exportFormat === 'docx' ? 'docx' : 'md';
-    const localMarkdown = editableMarkdown || (editableContentFormat === 'markdown' ? editableContent : '');
+    const exportFormat = 'docx';
+    const fallbackExt = 'docx';
 
     setExporting(true);
     try {
-      if (exportFormat === 'markdown') {
-        if (!localMarkdown.trim()) {
-          setSaveMessage('CV không có nội dung để download.');
-          return;
-        }
-
-        downloadBlob(
-          new Blob([localMarkdown], { type: 'text/markdown;charset=utf-8' }),
-          buildClientExportFilename(
-            cvDocument?.base_profile_data?.job_title || staticTemplateTitle || documentTitle,
-            fallbackExt
-          )
-        );
+      const currentMarkdown = String(editableMarkdown || '').trim();
+      if (!currentMarkdown) {
+        setSaveMessage('CV chưa có nội dung để tải DOCX.');
         return;
       }
 
-      if (!cvDocument?.id) {
-        setSaveMessage('Download DOCX chỉ khả dụng sau khi CV đã được tạo hoặc lưu.');
-        return;
-      }
-
+      const shouldSaveBeforeExport = Boolean(cvDocument?.id && hasUnsavedEdits);
       let activeDocument = cvDocument;
-      if (hasUnsavedEdits) {
+      if (shouldSaveBeforeExport) {
         const savedDocument = await handleSaveEdits();
         if (!savedDocument) return;
         activeDocument = savedDocument;
       }
 
-      const response = await downloadGeneratedCV(activeDocument.id, exportFormat);
+      const response = activeDocument?.id
+        ? await downloadGeneratedCV(activeDocument.id, exportFormat)
+        : await exportPreviewDocx(
+            currentMarkdown,
+            cvDocument?.base_profile_data?.job_title || staticTemplateTitle || conversationTitle
+          );
       const headerValue = response.headers?.['content-disposition'] || response.headers?.['Content-Disposition'];
       const filename = parseFilenameFromDisposition(headerValue) || `generated_cv.${fallbackExt}`;
       const blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
@@ -761,34 +1205,62 @@ export default function WorkspacePage() {
     }
   };
 
+  const handleAnalyzeCurrentCv = async () => {
+    if (!cvDocument?.id || analyzingCurrentCv) return;
+
+    setShowAttachPanel(true);
+    setAttachedCvFile(null);
+    setAttachedJdText('');
+    setInputValue('');
+    setSaveMessage('Dán JD hoặc đính kèm tài liệu trong khung chat. Hệ thống sẽ kiểm tra file là CV hay job trước khi phân tích.');
+    window.requestAnimationFrame(() => chatInputRef.current?.focus());
+  };
+
+  const isAttachMode = showAttachPanel;
+  const canSubmitComposer = loading
+    ? false
+    : isAttachMode
+      ? cvDocument
+        ? Boolean(attachedCvFile || inputValue.trim())
+        : Boolean(attachedCvFile && inputValue.trim())
+      : Boolean(inputValue.trim());
+  const composerPlaceholder = isAttachMode
+    ? cvDocument
+      ? 'Dán JD hoặc đính kèm tài liệu...'
+      : 'Đính kèm CV và dán JD...'
+    : 'Nhập yêu cầu hoặc đính kèm tài liệu...';
+  const composerMeta = isAttachMode
+    ? cvDocument
+      ? 'Hệ thống sẽ kiểm tra tài liệu đính kèm là CV hay job trước khi phân tích.'
+      : 'Đính kèm CV, dán JD vào ô chat rồi gửi để phân tích.'
+    : 'Enter để gửi. Shift + Enter để xuống dòng.';
+  const attachButtonTitle = cvDocument
+    ? 'Đính kèm tài liệu'
+    : 'Đính kèm file CV';
+  const conversationTitleFallback = cvDocument?.base_profile_data?.source_type === 'uploaded_cv' && cvDocument?.base_profile_data?.source_filename
+    ? `CV tải lên: ${cvDocument.base_profile_data.source_filename}`
+    : cvDocument?.base_profile_data?.job_title || staticTemplateTitle;
+  const conversationTitle = buildConversationTitle(
+    messages,
+    conversationTitleFallback
+  );
+
   return (
-    <div className={`workspace-container workspace-layout-${layoutMode} fade-in`}>
+    <div
+      ref={workspaceRef}
+      className="workspace-container fade-in"
+      style={chatPaneWidth ? {
+        '--workspace-chat-basis': `${chatPaneWidth}px`,
+        '--workspace-chat-max': `${chatPaneWidth}px`,
+      } : undefined}
+    >
       {/* Left Pane: Chat Interaction */}
       <div className="workspace-chat-pane">
         <div className="chat-header">
-          <div className="chat-header-main">
-            <div className="chat-header-title">
-              <SparklesIcon className="chat-header-icon" />
-              <div className="chat-header-copy">
-                <span>Trợ lý CV</span>
-                <small>
-                  {cvDocument
-                    ? 'Mô tả thay đổi ở bên trái, tài liệu sẽ cập nhật và lưu theo version.'
-                    : 'Tạo, phân tích và chỉnh sửa CV trên cùng một màn hình.'}
-                </small>
-              </div>
-            </div>
-          </div>
-          <span className={`chat-header-status ${loading ? 'busy' : ''}`}>
-            {loading ? 'Đang xử lý' : 'Sẵn sàng'}
-          </span>
+          <h2 className="chat-conversation-title" title={conversationTitle}>
+            {conversationTitle}
+          </h2>
         </div>
-        {restoredDraft && (
-          <div className="workspace-draft-banner">
-            Đã khôi phục phiên chat đang làm dở.
-          </div>
-        )}
-
         <div className="chat-history auto-scroll-y">
           {showChatStarter && (
             <div className="workspace-chat-intro">
@@ -803,7 +1275,7 @@ export default function WorkspacePage() {
               <p>
                 {cvDocument
                   ? 'Gửi yêu cầu ngắn gọn như viết lại kinh nghiệm, tối ưu theo JD, rút gọn summary hoặc đánh bóng thông tin ứng tuyển.'
-                  : 'Nhập prompt để tạo CV mới, hoặc mở chế độ phân tích ở phía dưới để upload CV và job description.'}
+                  : 'Nhập yêu cầu để tạo CV mới, hoặc dùng nút đính kèm để gửi tài liệu ứng tuyển.'}
               </p>
               <div className="workspace-chat-suggestions">
                 {EMPTY_CHAT_PROMPTS.map((prompt) => (
@@ -853,7 +1325,9 @@ export default function WorkspacePage() {
           )}
           {streamCvText && (
             <div className="chat-tool-execution">
-              <div className="tool-icon">🛠️</div>
+              <div className="tool-icon">
+                <span className="material-symbols-outlined">description</span>
+              </div>
               <div className="tool-text">
                 <span className="tool-name">Công cụ | Đang tạo CV Markdown</span>
                 <span className="tool-status">Đang soạn thảo tài liệu...</span>
@@ -864,7 +1338,7 @@ export default function WorkspacePage() {
           {analysisMode && Object.keys(analysisSteps).length > 0 && (
             <div className="chat-bubble-wrapper assistant">
               <div className="chat-bubble analysis-progress-bubble">
-                <div className="analysis-steps-header">🔬 Đang phân tích CV...</div>
+                <div className="analysis-steps-header">Đang phân tích CV...</div>
                 <div className="analysis-steps-list">
                   {['extract', 'score', 'rewrite', 'truthcheck', 'insights', 'diff'].map((key) => {
                     const step = analysisSteps[key];
@@ -874,7 +1348,9 @@ export default function WorkspacePage() {
                     return (
                       <div key={key} className={`analysis-step-item ${isDone ? 'done' : ''} ${isRunning ? 'running' : ''}`}>
                         <span className="analysis-step-icon">
-                          {isDone ? '✅' : isRunning ? '⏳' : '⬜'}
+                          <span className="material-symbols-outlined">
+                            {isDone ? 'check_circle' : isRunning ? 'progress_activity' : 'radio_button_unchecked'}
+                          </span>
                         </span>
                         <span className="analysis-step-label">{step.label || key}</span>
                         {isDone && step.duration_ms && (
@@ -956,26 +1432,16 @@ export default function WorkspacePage() {
                 <div className="analysis-insights">
                   {analysisResults.insights.jd_evaluation && (
                     <div className="insight-card">
-                      <h4>📋 Phân tích JD</h4>
+                      <h4>Phân tích JD</h4>
                       <p><strong>Tóm tắt:</strong> {getJdEvaluationSummary(analysisResults.insights.jd_evaluation) || 'Chưa có dữ liệu'}</p>
                       <p><strong>Nhận xét:</strong> {getJdEvaluationAdvice(analysisResults.insights.jd_evaluation) || 'Chưa có dữ liệu'}</p>
                     </div>
                   )}
                   {analysisResults.insights.salary_negotiation && (
                     <div className="insight-card">
-                      <h4>💰 Đề xuất lương</h4>
+                      <h4>Đề xuất lương</h4>
                       <p className="salary-range">{getSalaryRange(analysisResults.insights.salary_negotiation) || 'Chưa có dữ liệu'}</p>
                       <p>{getSalaryAdvice(analysisResults.insights.salary_negotiation) || 'Chưa có dữ liệu'}</p>
-                    </div>
-                  )}
-                  {analysisResults.insights.interview_questions?.length > 0 && (
-                    <div className="insight-card">
-                      <h4>🎤 Gợi ý phỏng vấn</h4>
-                      <ul>
-                        {analysisResults.insights.interview_questions.slice(0, 3).map((q, i) => (
-                          <li key={i}><strong>Q:</strong> {q.question}{getInterviewQuestionNote(q) && <em style={{ display: 'block', color: 'var(--on-surface-variant)', fontSize: '0.75rem' }}>Gợi ý thêm: {getInterviewQuestionNote(q)}</em>}</li>
-                        ))}
-                      </ul>
                     </div>
                   )}
                 </div>
@@ -986,92 +1452,56 @@ export default function WorkspacePage() {
         </div>
 
         <form className="chat-input-area floating-input" onSubmit={handleSubmit}>
-          {/* Attach CV panel */}
-          {showAttachPanel && (
-            <div className="attach-panel">
-              <div className="attach-panel-header">
-                <span>📎 Phân tích CV</span>
-                <button type="button" className="attach-close-btn" onClick={() => setShowAttachPanel(false)}>✕</button>
-              </div>
-              <div className="attach-panel-body">
-                <div className="attach-cv-zone" onClick={() => cvFileRef.current?.click()}>
-                  <input
-                    ref={cvFileRef}
-                    type="file"
-                    accept=".pdf,.docx"
-                    onChange={(e) => setAttachedCvFile(e.target.files[0])}
-                    hidden
-                  />
-                  {attachedCvFile ? (
-                    <div className="attach-file-preview">
-                      <span className="material-symbols-outlined" style={{ color: 'var(--secondary)', fontSize: '1.2rem' }}>check_circle</span>
-                      <span>{attachedCvFile.name}</span>
-                      <small>({(attachedCvFile.size / 1024).toFixed(0)} KB)</small>
-                    </div>
-                  ) : (
-                    <div className="attach-file-prompt">
-                      <span className="material-symbols-outlined" style={{ fontSize: '1.5rem', color: 'var(--outline)' }}>upload_file</span>
-                      <span>Chọn file CV (PDF/DOCX)</span>
-                    </div>
-                  )}
-                </div>
-                <textarea
-                  className="attach-jd-input"
-                  value={attachedJdText}
-                  onChange={(e) => setAttachedJdText(e.target.value)}
-                  placeholder="Dán Mô tả công việc (JD) tại đây..."
-                  rows={4}
-                />
-                <button
-                  type="button"
-                  className="btn-primary attach-analyze-btn"
-                  disabled={!attachedCvFile || !attachedJdText.trim() || loading}
-                  onClick={handleAnalyze}
-                >
-                  🔬 Bắt đầu phân tích
-                </button>
-              </div>
-            </div>
-          )}
           <div className="workspace-composer">
-            <div className="workspace-composer-top">
-              <div className="workspace-composer-toolbar">
+            {attachedCvFile && (
+              <div className="composer-file-chip">
+                <span className="material-symbols-outlined">description</span>
+                <span className="composer-file-name">{attachedCvFile.name}</span>
+                <small>{(attachedCvFile.size / 1024).toFixed(0)} KB</small>
                 <button
                   type="button"
-                  className={`workspace-mode-chip ${showAttachPanel ? 'active' : ''}`}
-                  onClick={() => setShowAttachPanel(!showAttachPanel)}
-                  disabled={loading}
-                  title="Phân tích CV"
+                  className="composer-file-remove"
+                  onClick={() => {
+                    setAttachedCvFile(null);
+                    if (cvFileRef.current) cvFileRef.current.value = '';
+                  }}
+                  aria-label="Bỏ tài liệu đính kèm"
                 >
-                  <span className="workspace-mode-chip-icon">📎</span>
-                  <span>Phân tích CV</span>
+                  <span className="material-symbols-outlined">close</span>
                 </button>
-                <div className="workspace-format-selector" role="group" aria-label="Output format selector">
-                  {OUTPUT_FORMAT_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={`workspace-format-chip ${outputFormat === option.value ? 'active' : ''}`}
-                      onClick={() => setOutputFormat(option.value)}
-                      disabled={loading}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
               </div>
-              <span className="workspace-composer-meta">
-                {showAttachPanel
-                  ? 'Đính kèm CV và JD ở phía trên để chấm điểm, phân tích và tối ưu.'
-                  : 'Enter để gửi. Shift + Enter để xuống dòng.'}
-              </span>
-            </div>
-            <div className="chat-input-wrapper" onClick={() => chatInputRef.current?.focus()}>
+            )}
+            <div className={`chat-input-wrapper ${isAttachMode ? 'attach-mode' : ''}`} onClick={() => chatInputRef.current?.focus()}>
+              <input
+                ref={cvFileRef}
+                type="file"
+                accept={cvDocument ? '.pdf,.docx,.txt,.md' : '.pdf,.docx'}
+                onChange={(e) => {
+                  setAttachedCvFile(e.target.files[0] || null);
+                  setShowAttachPanel(true);
+                  window.requestAnimationFrame(() => chatInputRef.current?.focus());
+                }}
+                hidden
+              />
+              <button
+                type="button"
+                className={`composer-attach-btn ${isAttachMode ? 'active' : ''}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setShowAttachPanel(true);
+                  cvFileRef.current?.click();
+                }}
+                disabled={loading}
+                title={attachButtonTitle}
+                aria-label={attachButtonTitle}
+              >
+                <span className="material-symbols-outlined">attach_file</span>
+              </button>
               <textarea
                 ref={chatInputRef}
                 className="chat-input"
-                rows={2}
-                placeholder={showAttachPanel ? 'Đính kèm CV + JD ở phía trên để phân tích...' : 'Nhập yêu cầu của bạn (VD: thêm JD, đổi title...)'}
+                rows={1}
+                placeholder={composerPlaceholder}
                 value={inputValue}
                 onChange={(e) => {
                   setInputValue(e.target.value);
@@ -1084,13 +1514,39 @@ export default function WorkspacePage() {
                   }
                 }}
               />
-              <button type="submit" className={`chat-submit-btn ${inputValue.trim() ? 'active' : ''}`} disabled={!inputValue.trim() || loading}>
+              {isAttachMode && !attachedCvFile && (
+                <button
+                  type="button"
+                  className="composer-attach-clear"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setShowAttachPanel(false);
+                    setAttachedCvFile(null);
+                    setAttachedJdText('');
+                    setInputValue('');
+                  }}
+                  aria-label="Thoát chế độ đính kèm"
+                  title="Thoát chế độ đính kèm"
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              )}
+              <button type="submit" className={`chat-submit-btn ${canSubmitComposer ? 'active' : ''}`} disabled={!canSubmitComposer}>
                 <PaperAirplaneIcon className="submit-icon" />
               </button>
             </div>
+            <span className="workspace-composer-meta">{composerMeta}</span>
           </div>
         </form>
       </div>
+
+      <div
+        className="workspace-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Kéo để thay đổi kích thước chat và preview"
+        onPointerDown={startWorkspaceResize}
+      />
 
       {/* Right Pane: Document Viewer */}
       <div className="workspace-doc-pane">
@@ -1107,7 +1563,7 @@ export default function WorkspacePage() {
             </div>
             {(cvDocument || editableContent) && (
               <div className="doc-meta">
-                <span className="doc-format-chip">{OUTPUT_FORMAT_LABELS[documentFormat]}</span>
+                <span className="doc-format-chip">DOCX</span>
                 {cvDocument?.version ? (
                   <span className="doc-version-chip">{`v${cvDocument.version}`}</span>
                 ) : null}
@@ -1117,18 +1573,6 @@ export default function WorkspacePage() {
           </div>
           {(cvDocument || editableContent) && (
             <div className="doc-actions">
-              <div className="workspace-layout-switch" role="group" aria-label="Điều chỉnh bố cục workspace">
-                {LAYOUT_MODES.map((mode) => (
-                  <button
-                    key={mode.value}
-                    type="button"
-                    className={`workspace-layout-chip ${layoutMode === mode.value ? 'active' : ''}`}
-                    onClick={() => setLayoutMode(mode.value)}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
-              </div>
               {cvDocument && versionHistory.length > 0 && (
                 <label className="doc-version-select-wrap">
                   <span>Phiên bản</span>
@@ -1155,13 +1599,24 @@ export default function WorkspacePage() {
                   {savingEdits ? 'Đang lưu...' : 'Lưu thành version mới'}
                 </button>
               )}
+              {cvDocument && (
+                <button
+                  type="button"
+                  className="btn-ghost doc-action-btn"
+                  onClick={handleAnalyzeCurrentCv}
+                  disabled={analyzingCurrentCv}
+                >
+                  {analyzingCurrentCv ? 'Đang tạo phân tích...' : 'Phân tích CV này'}
+                </button>
+              )}
               <button
                 type="button"
                 className="btn-primary doc-download-btn"
                 onClick={handleExport}
-                disabled={exporting || !editableContent}
+                disabled={exporting || !editableMarkdown.trim()}
+                title={editableMarkdown.trim() ? 'Tải xuống DOCX của nội dung hiện tại' : 'CV chưa có nội dung để tải DOCX'}
               >
-                {exporting ? 'Đang tải...' : `Download ${OUTPUT_FORMAT_LABELS[documentFormat]}`}
+                {exporting ? 'Đang tải...' : 'Tải DOCX'}
               </button>
             </div>
           )}

@@ -71,7 +71,6 @@ function ToolbarButton({ active = false, disabled = false, onClick, title, child
 
 export default function CvWysiwygEditor({
   value = '',
-  format = 'markdown',
   valueFormat = 'markdown',
   onChange,
   readOnly = false,

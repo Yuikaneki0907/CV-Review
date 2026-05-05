@@ -17,6 +17,7 @@ logger = get_logger("app.main")
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    settings.validate_runtime_safety()
 
     app = FastAPI(
         title="CV Review API",

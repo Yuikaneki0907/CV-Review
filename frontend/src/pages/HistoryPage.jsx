@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { listAnalyses } from '../api';
+import { EllipsisHorizontalIcon } from '@heroicons/react/24/outline';
+import { deleteAnalysis, listAnalyses } from '../api';
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -23,6 +24,10 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -43,6 +48,12 @@ export default function HistoryPage() {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const closeMenu = () => setOpenMenuId(null);
+    window.addEventListener('click', closeMenu);
+    return () => window.removeEventListener('click', closeMenu);
   }, []);
 
   const statusLabel = {
@@ -76,6 +87,29 @@ export default function HistoryPage() {
 
     return { total, completed, pending, averageScore };
   }, [analyses]);
+
+  const requestDeleteAnalysis = (event, analysis) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setOpenMenuId(null);
+    setDeleteError('');
+    setDeleteTarget(analysis);
+  };
+
+  const handleConfirmDeleteAnalysis = async () => {
+    if (!deleteTarget || deletingId) return;
+    setDeletingId(deleteTarget.id);
+    try {
+      await deleteAnalysis(deleteTarget.id);
+      setAnalyses((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err) {
+      console.error('Failed to delete analysis:', err);
+      setDeleteError(err.response?.data?.detail || 'Không thể xóa bản phân tích này.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="history-page">
@@ -171,9 +205,65 @@ export default function HistoryPage() {
                   {a.status === 'completed' ? '✓ ' : a.status === 'failed' ? '✕ ' : '◔ '}
                   {statusLabel[a.status] || a.status}
                 </span>
+                <div className="history-card-actions" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="history-menu-btn"
+                    title="Tùy chọn"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setOpenMenuId((prev) => (prev === a.id ? null : a.id));
+                    }}
+                    disabled={deletingId === a.id}
+                  >
+                    <EllipsisHorizontalIcon className="history-menu-icon" />
+                  </button>
+                  {openMenuId === a.id && (
+                    <div className="history-menu-popover">
+                      <button
+                        type="button"
+                        className="history-menu-delete"
+                        onClick={(event) => requestDeleteAnalysis(event, a)}
+                        disabled={deletingId === a.id}
+                      >
+                        {deletingId === a.id ? 'Đang xóa...' : 'Xóa'}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </Link>
           ))}
+        </div>
+      )}
+      {deleteTarget && (
+        <div className="confirm-modal-backdrop" role="presentation">
+          <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-delete-history">
+            <h3 id="confirm-delete-history">Xác nhận xóa phân tích</h3>
+            <p>
+              Bạn có chắc muốn xóa <strong>{deleteTarget.cv_filename}</strong> không?
+            </p>
+            {deleteError && <div className="confirm-modal-error">{deleteError}</div>}
+            <div className="confirm-modal-actions">
+              <button
+                type="button"
+                className="confirm-modal-btn cancel"
+                onClick={() => setDeleteTarget(null)}
+                disabled={Boolean(deletingId)}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="confirm-modal-btn danger"
+                onClick={handleConfirmDeleteAnalysis}
+                disabled={Boolean(deletingId)}
+              >
+                {deletingId ? 'Đang xóa...' : 'Xóa'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

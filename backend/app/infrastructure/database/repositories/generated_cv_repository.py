@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -198,7 +198,7 @@ class GeneratedCVRepository(IGeneratedCVRepository):
         if not model:
             return False
 
-        deleted_at = datetime.now(timezone.utc)
+        deleted_at = datetime.utcnow()
         await self._session.execute(
             update(GeneratedCVModel)
             .where(

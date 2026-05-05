@@ -1,9 +1,36 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Any, Dict, List
 
 
 class IAIService(ABC):
-    """Port for AI operations (Gemini)."""
+    """Port for AI operations (Gemini / OpenAI / OAuth-compatible)."""
+
+    @abstractmethod
+    async def generate_structured(
+        self,
+        prompt: str,
+        *,
+        expect_list: bool = False,
+    ) -> Any:
+        """Generic JSON-mode generation used by Phase 0 shared services.
+
+        Returns a parsed ``dict`` (or ``list`` when ``expect_list=True``).
+        On parse failure providers return ``{}`` / ``[]`` rather than
+        raising — callers detect that as an extraction failure and fall
+        back to ``Schema.empty(reason=...)``.
+        """
+        ...
+
+    @abstractmethod
+    async def generate_text(self, prompt: str) -> str:
+        """Generic plaintext/markdown generation.
+
+        Used by Phase 3's reviser (and any other service that needs raw
+        text output). Returns the trimmed body. Implementations should
+        return an empty string on provider errors rather than raising —
+        callers branch on emptiness.
+        """
+        ...
 
     @abstractmethod
     async def extract_cv_info(self, cv_text: str) -> Dict:
@@ -20,6 +47,11 @@ class IAIService(ABC):
         Returns dict with keys: required_skills, preferred_skills,
         experience_requirements, tools, responsibilities
         """
+        ...
+
+    @abstractmethod
+    async def classify_document(self, document_text: str, filename: str | None = None) -> Dict:
+        """Classify an uploaded document as CV, job description, or other."""
         ...
 
     @abstractmethod
@@ -74,9 +106,15 @@ class IAIService(ABC):
         jd_text: str,
         level: str,
         output_format: str = "markdown",
+        user_profile: Dict | None = None,
     ) -> str:
         """Generate a basic Markdown CV template for a given job.
-        
+
+        ``user_profile`` is the optional candidate-facts payload (Phase 2
+        fallback). When supplied with at least one of ``full_name`` /
+        ``email`` / ``phone_number``, the prompt biases the generator
+        toward inserting those values instead of placeholders.
+
         Returns a Markdown string representing the CV template.
         """
         ...

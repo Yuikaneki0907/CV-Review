@@ -23,6 +23,16 @@ const normalizeMessages = (messages) => {
     .slice(-120);
 };
 
+const buildConversationTitle = (messages, inputValue = '') => {
+  const firstUserMessage = messages.find((m) => m.role === 'user' && m.content.trim());
+  const rawTitle = firstUserMessage?.content || inputValue || '';
+  const normalized = rawTitle
+    .replace(/\s+/g, ' ')
+    .replace(/^#+\s*/, '')
+    .trim();
+  return normalized ? normalized.slice(0, 64) : '';
+};
+
 export const loadWorkspaceDraft = (userId, scope) => {
   if (!isBrowser() || !userId || !scope) return null;
   const raw = localStorage.getItem(buildKey(userId, scope));
@@ -39,6 +49,9 @@ export const loadWorkspaceDraft = (userId, scope) => {
       pending: Boolean(parsed.pending),
       generatedCvId: typeof parsed.generatedCvId === 'string' ? parsed.generatedCvId : null,
       outputFormat: normalizeOutputFormat(parsed.outputFormat),
+      previewContent: typeof parsed.previewContent === 'string' ? parsed.previewContent : '',
+      previewFormat: parsed.previewFormat === 'html' ? 'html' : 'markdown',
+      previewMarkdown: typeof parsed.previewMarkdown === 'string' ? parsed.previewMarkdown : '',
     };
   } catch {
     return null;
@@ -54,6 +67,9 @@ export const saveWorkspaceDraft = ({
   pending = undefined,
   generatedCvId = undefined,
   outputFormat = undefined,
+  previewContent = undefined,
+  previewFormat = undefined,
+  previewMarkdown = undefined,
 }) => {
   if (!isBrowser() || !userId || !scope) return;
 
@@ -66,11 +82,23 @@ export const saveWorkspaceDraft = ({
   const normalizedOutputFormat = normalizeOutputFormat(
     outputFormat === undefined ? existingDraft?.outputFormat : outputFormat
   );
+  const normalizedPreviewContent =
+    previewContent === undefined ? existingDraft?.previewContent || '' : String(previewContent || '');
+  const normalizedPreviewFormat =
+    previewFormat === undefined
+      ? existingDraft?.previewFormat || 'markdown'
+      : previewFormat === 'html'
+        ? 'html'
+        : 'markdown';
+  const normalizedPreviewMarkdown =
+    previewMarkdown === undefined ? existingDraft?.previewMarkdown || '' : String(previewMarkdown || '');
   const hasContent =
     normalizedMessages.length > 0 ||
     normalizedInput.trim().length > 0 ||
     normalizedPending ||
-    Boolean(normalizedGeneratedCvId);
+    Boolean(normalizedGeneratedCvId) ||
+    normalizedPreviewContent.trim().length > 0 ||
+    normalizedPreviewMarkdown.trim().length > 0;
 
   if (!hasContent) {
     clearWorkspaceDraft(userId, scope);
@@ -85,6 +113,9 @@ export const saveWorkspaceDraft = ({
     pending: normalizedPending,
     generatedCvId: normalizedGeneratedCvId,
     outputFormat: normalizedOutputFormat,
+    previewContent: normalizedPreviewContent,
+    previewFormat: normalizedPreviewFormat,
+    previewMarkdown: normalizedPreviewMarkdown,
   };
 
   localStorage.setItem(buildKey(userId, scope), JSON.stringify(payload));
@@ -114,13 +145,13 @@ export const listWorkspaceDrafts = (userId) => {
       draft.messages.length > 0 ||
       draft.inputValue.trim().length > 0 ||
       draft.pending ||
-      Boolean(draft.generatedCvId);
+      Boolean(draft.generatedCvId) ||
+      draft.previewContent.trim().length > 0 ||
+      draft.previewMarkdown.trim().length > 0;
     if (!hasContent) continue;
 
     const id = scope.startsWith('id:') ? scope.slice(3) : null;
-    const fallbackTitle = draft.messages
-      .filter((m) => m.role === 'user')
-      .slice(-1)[0]?.content?.trim();
+    const conversationTitle = buildConversationTitle(draft.messages, draft.inputValue);
 
     drafts.push({
       key,
@@ -129,10 +160,9 @@ export const listWorkspaceDrafts = (userId) => {
       updatedAt: draft.updatedAt ? new Date(draft.updatedAt).getTime() : 0,
       pending: draft.pending,
       title:
+        conversationTitle ||
         draft.title ||
-        (scope === 'new'
-          ? 'Phiên chat chưa hoàn tất'
-          : fallbackTitle?.slice(0, 48) || `Phiên #${id?.slice(0, 8)}`),
+        `Workspace #${id?.slice(0, 8) || 'mới'}`,
     });
   }
 

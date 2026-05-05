@@ -42,6 +42,8 @@ class AnalysisResult:
     jd_evaluation: Optional[dict] = None
     interview_questions: Optional[list] = None
     salary_negotiation: Optional[dict] = None
+    analysis_meta: Optional[dict] = None
+    score_breakdown: Optional[dict] = None
 
     # Timestamps
     created_at: datetime = field(default_factory=datetime.utcnow)

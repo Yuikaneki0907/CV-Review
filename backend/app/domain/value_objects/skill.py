@@ -9,6 +9,7 @@ class Skill:
     name: str
     category: str = ""  # e.g., "programming", "framework", "soft_skill"
     proficiency: str = ""  # e.g., "beginner", "intermediate", "advanced"
+    reason: str = ""
 
 
 @dataclass

@@ -17,7 +17,7 @@ export default function GeneratedCVView() {
       try {
         const res = await getGeneratedCV(id);
         setData(res.data);
-      } catch (err) {
+      } catch {
         setError(true);
       } finally {
         setLoading(false);

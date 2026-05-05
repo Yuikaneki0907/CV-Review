@@ -11,6 +11,7 @@ import GenerateCVPage from './pages/GenerateCVPage';
 import WorkspacePage from './pages/WorkspacePage';
 import GeneratedCVView from './pages/GeneratedCVView';
 import ProfilePage from './pages/ProfilePage';
+import CVManagementPage from './pages/CVManagementPage';
 
 
 function PrivateRoute({ children }) {
@@ -41,6 +42,7 @@ export default function App() {
               />
               <Route path="/analysis/:id" element={<PrivateRoute><AnalysisPage /></PrivateRoute>} />
               <Route path="/history" element={<PrivateRoute><HistoryPage /></PrivateRoute>} />
+              <Route path="/cv-management" element={<PrivateRoute><CVManagementPage /></PrivateRoute>} />
               <Route path="/profile" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
               <Route path="/generate-cv" element={<PrivateRoute><GenerateCVPage /></PrivateRoute>} />
               <Route path="/generated-cvs/:id" element={<PrivateRoute><GeneratedCVView /></PrivateRoute>} />

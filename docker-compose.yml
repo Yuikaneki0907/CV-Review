@@ -5,17 +5,17 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: cvreview
-      POSTGRES_PASSWORD: cvreview_pass
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cvreview_pass}
       POSTGRES_DB: cvreview
     ports:
-      - "5420:5432"
+      - "127.0.0.1:5420:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6320:6379"
+      - "127.0.0.1:6320:6379"
 
   mailpit:
     image: axllent/mailpit:latest
@@ -25,11 +25,11 @@ services:
   minio:
     image: minio/minio:latest
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
-      - "9020:9000"
-      - "9021:9001"
+      - "127.0.0.1:9020:9000"
+      - "127.0.0.1:9021:9001"
     volumes:
       - minio-data:/data
     command: server /data --console-address ":9001"

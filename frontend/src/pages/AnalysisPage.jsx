@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { API_BASE, getAnalysis } from '../api';
 
@@ -20,7 +20,7 @@ export default function AnalysisPage() {
   const eventSourceRef = useRef(null);
 
   // Fetch full analysis data
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const res = await getAnalysis(id);
       setData(res.data);
@@ -31,10 +31,39 @@ export default function AnalysisPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  // Handle step event from SSE
+  const handleStepEvent = useCallback((event) => {
+    const { step, status, duration_ms } = event;
+
+    if (step === 'pipeline') {
+      if (status === 'done' || status === 'completed' || status === 'failed') {
+        // Pipeline finished, fetch final data
+        setTimeout(() => fetchData(), 500);
+      }
+      return;
+    }
+
+    setStepStates(prev => ({
+      ...prev,
+      [step]: { status, duration_ms },
+    }));
+  }, [fetchData]);
+
+  // Fallback: poll every 3s if SSE fails
+  const fallbackPolling = useCallback(() => {
+    const poll = async () => {
+      const result = await fetchData();
+      if (result && (result.status === 'processing' || result.status === 'pending')) {
+        setTimeout(poll, 3000);
+      }
+    };
+    poll();
+  }, [fetchData]);
 
   // Connect to SSE for real-time streaming
-  const connectSSE = () => {
+  const connectSSE = useCallback(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
     eventSourceRef.current?.abort?.();
@@ -82,7 +111,7 @@ export default function AnalysisPage() {
               try {
                 const event = JSON.parse(line.slice(6));
                 handleStepEvent(event);
-              } catch (e) {
+              } catch {
                 // ignore parse errors
               }
             }
@@ -100,36 +129,7 @@ export default function AnalysisPage() {
     };
 
     fetchSSE();
-  };
-
-  // Handle step event from SSE
-  const handleStepEvent = (event) => {
-    const { step, status, duration_ms } = event;
-
-    if (step === 'pipeline') {
-      if (status === 'done' || status === 'completed' || status === 'failed') {
-        // Pipeline finished, fetch final data
-        setTimeout(() => fetchData(), 500);
-      }
-      return;
-    }
-
-    setStepStates(prev => ({
-      ...prev,
-      [step]: { status, duration_ms },
-    }));
-  };
-
-  // Fallback: poll every 3s if SSE fails
-  const fallbackPolling = () => {
-    const poll = async () => {
-      const result = await fetchData();
-      if (result && (result.status === 'processing' || result.status === 'pending')) {
-        setTimeout(poll, 3000);
-      }
-    };
-    poll();
-  };
+  }, [fallbackPolling, handleStepEvent, id]);
 
   useEffect(() => {
     const init = async () => {
@@ -145,7 +145,7 @@ export default function AnalysisPage() {
         eventSourceRef.current.abort();
       }
     };
-  }, [id]);
+  }, [connectSSE, fetchData, id]);
 
   const hasJdEvaluation = data?.jd_evaluation && Object.keys(data.jd_evaluation).length > 0;
   const hasSalaryData = data?.salary_negotiation && Object.keys(data.salary_negotiation).length > 0;
@@ -166,6 +166,9 @@ export default function AnalysisPage() {
       ...(data?.salary_negotiation?.cv_strengths || []).map((item) => `Điểm mạnh: ${item}`),
       ...(data?.salary_negotiation?.cv_weaknesses || []).map((item) => `Cần chuẩn bị: ${item}`),
     ];
+  const generatedMeta = data?.analysis_meta?.source === 'generated_cv' ? data.analysis_meta : null;
+  const sectionDiffs = Array.isArray(data?.section_diffs) ? data.section_diffs : [];
+  const diffStats = getSectionDiffStats(sectionDiffs);
 
   if (loading) {
     return (
@@ -257,6 +260,10 @@ export default function AnalysisPage() {
         </div>
       )}
 
+      {generatedMeta && (
+        <GeneratedCvAnalysisNote meta={generatedMeta} scoreBreakdown={data.score_breakdown} />
+      )}
+
       {/* Tabs */}
       <div className="tab-bar" style={{ overflowX: 'auto', display: 'flex', whiteSpace: 'nowrap' }}>
         <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>
@@ -264,9 +271,6 @@ export default function AnalysisPage() {
         </button>
         <button className={tab === 'jd_eval' ? 'active' : ''} onClick={() => setTab('jd_eval')}>
           Phân tích JD
-        </button>
-        <button className={tab === 'interview' ? 'active' : ''} onClick={() => setTab('interview')}>
-          Gợi ý Phỏng vấn
         </button>
         <button className={tab === 'salary' ? 'active' : ''} onClick={() => setTab('salary')}>
           Đề xuất Lương
@@ -315,25 +319,6 @@ export default function AnalysisPage() {
           </div>
         )}
 
-        {tab === 'interview' && (
-          <div className="interview-tab fade-in">
-            <h3>Gợi ý câu hỏi phỏng vấn</h3>
-            <p className="subtitle">Dựa trên JD và hồ sơ, bạn có thể chuẩn bị hoặc hỏi ngược nhà tuyển dụng các câu sau:</p>
-            {data.interview_questions?.length > 0 ? (
-              <div className="qa-list">
-                {data.interview_questions.map((q, i) => (
-                  <div key={i} className="qa-card">
-                    <div className="qa-question"><strong>Q:</strong> {q.question}</div>
-                    <div className="qa-reason"><em>Mục đích:</em> {q.purpose || q.reason || 'Không có mô tả'}</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="empty">Chưa có gợi ý câu hỏi</p>
-            )}
-          </div>
-        )}
-
         {tab === 'salary' && (
           <div className="salary-tab fade-in">
             <h3>Đề xuất Deal Lương</h3>
@@ -362,14 +347,23 @@ export default function AnalysisPage() {
         {tab === 'diff' && (
           <div className="diff-tab">
             <h3>CV gốc vs CV đề xuất</h3>
-            {data.diff_segments ? (
-              <div className="diff-view">
-                {data.diff_segments.map((seg, i) => (
-                  <span key={i} className={`diff-${seg.diff_type}`}>{seg.text}</span>
-                ))}
+            {sectionDiffs.length > 0 ? (
+              <div className="section-diff-shell">
+                <div className="section-diff-toolbar">
+                  <span>Đã sửa {diffStats.modified} mục · Thêm {diffStats.added} · Xóa {diffStats.removed}</span>
+                  <div className="section-diff-legend">
+                    <span><i className="legend-box removed" /> Bản gốc</span>
+                    <span><i className="legend-box added" /> Bản đề xuất</span>
+                  </div>
+                </div>
+                <div className="section-diff-list">
+                  {sectionDiffs.map((section, index) => (
+                    <SectionDiffCard key={`${section.key}-${index}`} section={section} />
+                  ))}
+                </div>
               </div>
             ) : (
-              <p className="empty">Chưa có dữ liệu so sánh</p>
+              <p className="empty">Không có thay đổi đáng kể để hiển thị</p>
             )}
           </div>
         )}
@@ -422,6 +416,54 @@ function ScoreCard({ label, value, large }) {
   );
 }
 
+function getSectionDiffStats(sections = []) {
+  const added = sections.filter((section) => section.status === 'added').length;
+  const removed = sections.filter((section) => section.status === 'removed').length;
+  const modified = sections.filter((section) => section.status === 'modified').length;
+  return {
+    added,
+    removed,
+    modified,
+  };
+}
+
+function SectionDiffCard({ section }) {
+  const statusLabel = {
+    added: 'Thêm mới',
+    removed: 'Đã xoá',
+    modified: 'Đã sửa',
+  }[section.status] || 'Đã sửa';
+  const removedText = section.changes?.filter((change) => change.type === 'removed').map((change) => change.text).join('\n\n');
+  const addedText = section.changes?.filter((change) => change.type === 'added').map((change) => change.text).join('\n\n');
+
+  return (
+    <article className={`section-diff-card status-${section.status || 'modified'}`}>
+      <header className="section-diff-card-header">
+        <div>
+          <span className="section-diff-kicker">Section</span>
+          <h4>{section.title || 'Khác'}</h4>
+        </div>
+        <span className="section-diff-status">{statusLabel}</span>
+      </header>
+      <p className="section-diff-reason">{section.reason || 'Nội dung được điều chỉnh để phù hợp hơn.'}</p>
+      <div className="section-diff-comparison">
+        {removedText && (
+          <div className="section-diff-panel removed">
+            <strong>Bản gốc</strong>
+            <pre>{removedText}</pre>
+          </div>
+        )}
+        {addedText && (
+          <div className="section-diff-panel added">
+            <strong>Bản đề xuất</strong>
+            <pre>{addedText}</pre>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function SkillList({ title, icon, items, type }) {
   return (
     <div className="skill-list">
@@ -434,13 +476,41 @@ function SkillList({ title, icon, items, type }) {
       </h4>
       <div className="skill-tags">
         {items?.map((s, i) => (
-          <span key={i} className={`skill-tag tag-${type}`}>
+          <span
+            key={i}
+            className={`skill-tag tag-${s.category === 'needs_user_info' ? 'needs-info' : type}`}
+            title={s.reason || ''}
+          >
             {s.name}
-            {s.category && <small>{s.category}</small>}
+            {s.category === 'needs_user_info' ? <small>Cần bổ sung dữ liệu</small> : s.category && <small>{s.category}</small>}
           </span>
         ))}
         {(!items || items.length === 0) && <span className="empty">Không có</span>}
       </div>
+    </div>
+  );
+}
+
+function GeneratedCvAnalysisNote({ meta, scoreBreakdown }) {
+  const needs = meta?.needs_user_info || scoreBreakdown?.needs_user_info || [];
+  return (
+    <div className={`generated-analysis-note ${meta?.pass_ready ? 'ready' : 'needs-info'}`}>
+      <div>
+        <h3>{meta?.pass_ready ? 'CV generated đã sẵn sàng phân tích' : 'CV generated cần bổ sung dữ liệu thật'}</h3>
+        <p>{meta?.explanation || scoreBreakdown?.note || 'Hệ thống chỉ tính các kỹ năng có bằng chứng trong CV.'}</p>
+      </div>
+      <div className="generated-analysis-meta">
+        <span>Chế độ: {meta?.generation_mode === 'personalized' ? 'Cá nhân hóa' : 'Template/nháp'}</span>
+        <span>Placeholder: {meta?.placeholder_count ?? 0}</span>
+        <span>Kỹ năng cần chứng minh: {needs.length}</span>
+      </div>
+      {needs.length > 0 && (
+        <div className="generated-analysis-skills">
+          {needs.slice(0, 8).map((skill, index) => (
+            <span key={`${skill}-${index}`}>{skill}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

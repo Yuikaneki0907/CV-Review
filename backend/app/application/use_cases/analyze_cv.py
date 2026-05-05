@@ -1,71 +1,183 @@
-import difflib
+"""AnalyzeCVUseCase — five-dimension scorer.
+
+Phase 1 rewrite. The use case is now a thin pipeline:
+
+    extract_jd  →  extract_cv  →  score_cv  →  persist
+
+Streaming variant (used by the SSE route) yields events between steps.
+
+The old 6-step pipeline (rewrite_cv / check_hallucination /
+visual diff / insights) has been removed. Its replacement is the
+``suggestions`` field on :class:`AnalysisResultSchema` plus the
+``gap_analysis`` field, both populated by
+``application.services.scoring.score_cv``.
+"""
+from __future__ import annotations
+
+import asyncio
 import json
 import time
-from typing import List
+from typing import AsyncIterator
 from uuid import UUID
 
-import numpy as np
-
+from app.application.interfaces.ai_service import IAIService
+from app.application.interfaces.repositories import IAnalysisRepository
+from app.application.services.scoring import score_cv
+from app.application.services.shared import extract_cv, extract_jd
 from app.domain.entities.analysis_result import AnalysisResult
+from app.domain.schemas import AnalysisResultSchema
 from app.domain.value_objects.score import MatchScore
 from app.domain.value_objects.skill import Skill, SkillAnalysis
-from app.domain.value_objects.diff_segment import DiffSegment, DiffResult, DiffType
-from app.domain.value_objects.hallucination import (
-    HallucinationWarning,
-    HallucinationReport,
-    WarningLevel,
-)
-from app.application.interfaces.repositories import IAnalysisRepository
-from app.application.interfaces.ai_service import IAIService
 from app.logger import get_logger
 
-logger = get_logger("app.application.analyze_cv")
+logger = get_logger("app.application.use_cases.analyze_cv")
 
-# Step definitions for streaming
+
+# Step keys used by the SSE stream — kept stable so the frontend
+# can render progress without a contract change.
 STEPS = [
-    {"key": "extract", "label": "Trích xuất thông tin CV"},
-    {"key": "score", "label": "Matching & Scoring"},
-    {"key": "rewrite", "label": "Viết lại CV"},
-    {"key": "truthcheck", "label": "Kiểm tra hallucination"},
-    {"key": "diff", "label": "Tạo visual diff"},
-    {"key": "insights", "label": "Phân tích JD nâng cao"},
+    {"key": "extract", "label": "Trích xuất thông tin CV & JD"},
+    {"key": "score", "label": "Chấm điểm 5 chiều"},
+    {"key": "done", "label": "Hoàn tất"},
 ]
 
 
+def _attach_result_to_entity(
+    analysis: AnalysisResult,
+    result: AnalysisResultSchema,
+) -> None:
+    """Write the new schema and back-compat fields onto the entity.
+
+    The DB schema still has fixed columns (``overall_score``,
+    ``skills_score``, ``matched_skills``, …). We populate them with
+    semantically-closest values so legacy frontend panels still render,
+    AND we persist the canonical :class:`AnalysisResultSchema` inside
+    ``analysis.analysis_meta["result"]`` for the new wire format. No
+    DB migration is required.
+    """
+    # Canonical new representation — read by the new response DTO path.
+    meta = dict(analysis.analysis_meta or {})
+    meta["result"] = result.model_dump()
+    meta["schema_version"] = 1
+    analysis.analysis_meta = meta
+
+    # Legacy column population (best-effort mapping):
+    #   overall_score ← result.overall_score
+    #   skills_score      ← keyword_coverage   (closest semantic equivalent)
+    #   experience_score  ← relevance
+    #   tools_score       ← achievement_quality
+    analysis.score = MatchScore(
+        overall=result.overall_score,
+        skills_score=result.dimension_scores.keyword_coverage.score,
+        experience_score=result.dimension_scores.relevance.score,
+        tools_score=result.dimension_scores.achievement_quality.score,
+    )
+
+    # Skill analysis ← keyword report (legacy column).
+    analysis.skill_analysis = SkillAnalysis(
+        matched_skills=[Skill(name=name) for name in result.keyword_report.found],
+        missing_skills=[Skill(name=name) for name in result.keyword_report.missing],
+        extra_skills=[],
+    )
+
+    # Legacy "score_breakdown" — keep populated so the existing /analysis/{id}
+    # response surface still has data while frontend migrates.
+    analysis.score_breakdown = {
+        "verdict": result.verdict,
+        "dimension_scores": {
+            name: {"score": dim.score, "reason": dim.reason}
+            for name, dim in result.dimension_scores.as_pairs()
+        },
+        "gap_analysis": result.gap_analysis.model_dump(),
+        "keyword_report": result.keyword_report.model_dump(),
+        "suggestions": [s.model_dump() for s in result.suggestions],
+    }
+
+
 class AnalyzeCVUseCase:
-    """Main orchestrator — runs the full CV analysis pipeline."""
+    """Five-dimension CV analyzer.
+
+    Backwards-compatible constructor — Celery task still passes
+    ``(repo, ai_service, redis_client)``.
+    """
 
     def __init__(
         self,
         analysis_repo: IAnalysisRepository,
         ai_service: IAIService,
         redis_client=None,
-    ):
+    ) -> None:
         self._analysis_repo = analysis_repo
         self._ai_service = ai_service
         self._redis = redis_client
 
-    def _publish_step(self, analysis_id: UUID, step_key: str, status: str, duration_ms: float = 0):
-        """Publish step progress to Redis for SSE streaming."""
+    # ─ Pub/Sub for SSE (unchanged from old pipeline) ─────────────
+    def _publish_step(
+        self,
+        analysis_id: UUID,
+        step_key: str,
+        status: str,
+        duration_ms: float = 0,
+    ) -> None:
         if not self._redis:
             return
         channel = f"analysis:{analysis_id}"
-        message = json.dumps({
-            "step": step_key,
-            "status": status,
-            "duration_ms": round(duration_ms),
-        })
+        message = json.dumps(
+            {"step": step_key, "status": status, "duration_ms": round(duration_ms)}
+        )
         try:
             self._redis.publish(channel, message)
-            logger.debug("Published to %s: %s", channel, message)
-        except Exception as e:
-            logger.warning("Failed to publish step event: %s", e)
+        except Exception as exc:
+            logger.warning("Failed to publish step event: %s", exc)
+
+    # ─ Pipeline ──────────────────────────────────────────────────
+    async def _run_pipeline(self, analysis: AnalysisResult) -> AnalysisResultSchema:
+        """Run extract → score, returning the schema. Used by both
+        ``execute`` and ``execute_stream``.
+        """
+        # Concurrent extraction — JD and CV don't depend on each other.
+        jd_task = extract_jd(analysis.jd_text, self._ai_service)
+        cv_task = extract_cv(analysis.cv_text, self._ai_service)
+        jd, cv = await asyncio.gather(jd_task, cv_task)
+
+        # Surface the structured extracts onto the entity (legacy fields).
+        analysis.jd_extracted = {
+            "must_have_keywords": jd.must_have_keywords,
+            "nice_to_have_keywords": jd.nice_to_have_keywords,
+            "tools": jd.tools,
+            "responsibilities": jd.responsibilities,
+            "job_title": jd.job_title,
+            "seniority": jd.seniority,
+        }
+        analysis.cv_extracted = {
+            "skills": cv.skills,
+            "tools": cv.tools,
+            "summary": cv.summary,
+            "placeholders_remaining": cv.placeholders_remaining,
+            "candidate_facts_present": cv.candidate_facts_present,
+            "experience_count": len(cv.experience),
+        }
+
+        result = await score_cv(
+            cv,
+            jd,
+            self._ai_service,
+            analysis_meta=analysis.analysis_meta,
+        )
+        return result
 
     async def execute(self, analysis_id: UUID) -> AnalysisResult:
-        """Run the full analysis pipeline for a given analysis record."""
+        """Run the full pipeline for an existing analysis row.
 
+        Args:
+            analysis_id: Row id loaded by the Celery task.
+
+        Returns:
+            The persisted :class:`AnalysisResult` with the new schema
+            attached.
+        """
         pipeline_start = time.perf_counter()
-        logger.info("Pipeline START: analysis_id=%s", analysis_id)
+        logger.info("Analyze pipeline START: analysis_id=%s", analysis_id)
 
         analysis = await self._analysis_repo.get_by_id(analysis_id)
         if not analysis:
@@ -76,290 +188,124 @@ class AnalyzeCVUseCase:
         await self._analysis_repo.update(analysis)
 
         try:
-            # Step 1: Extract structured info from CV and JD
             self._publish_step(analysis_id, "extract", "running")
             step_start = time.perf_counter()
-            cv_extracted = await self._ai_service.extract_cv_info(analysis.cv_text)
-            jd_extracted = await self._ai_service.extract_jd_info(analysis.jd_text)
-            analysis.cv_extracted = cv_extracted
-            analysis.jd_extracted = jd_extracted
-            step_ms = (time.perf_counter() - step_start) * 1000
-            logger.info("Step 1 DONE (extract): %.0fms", step_ms)
-            await self._analysis_repo.update(analysis)
-            self._publish_step(analysis_id, "extract", "done", step_ms)
+            result = await self._run_pipeline(analysis)
+            extract_ms = (time.perf_counter() - step_start) * 1000
+            self._publish_step(analysis_id, "extract", "done", extract_ms)
+            self._publish_step(analysis_id, "score", "done", 0)
 
-            # Step 2: Match & Score using embeddings
-            self._publish_step(analysis_id, "score", "running")
-            step_start = time.perf_counter()
-            analysis.score, analysis.skill_analysis = await self._match_and_score(
-                cv_extracted, jd_extracted
-            )
-            step_ms = (time.perf_counter() - step_start) * 1000
-            logger.info(
-                "Step 2 DONE (score): %.0fms — overall=%.1f",
-                step_ms,
-                analysis.score.overall,
-            )
-            await self._analysis_repo.update(analysis)
-            self._publish_step(analysis_id, "score", "done", step_ms)
-
-            # Step 3: Rewrite CV
-            self._publish_step(analysis_id, "rewrite", "running")
-            step_start = time.perf_counter()
-            analysis.rewritten_cv = await self._ai_service.rewrite_cv(
-                analysis.cv_text, analysis.jd_text, cv_extracted, jd_extracted
-            )
-            step_ms = (time.perf_counter() - step_start) * 1000
-            logger.info("Step 3 DONE (rewrite): %.0fms", step_ms)
-            await self._analysis_repo.update(analysis)
-            self._publish_step(analysis_id, "rewrite", "done", step_ms)
-
-            # Step 4: Truth-Anchoring
-            self._publish_step(analysis_id, "truthcheck", "running")
-            step_start = time.perf_counter()
-            try:
-                analysis.hallucination_report = await self._check_truth(
-                    analysis.cv_text, analysis.rewritten_cv, cv_extracted
-                )
-                truth_status = "done"
-            except Exception as exc:
-                logger.warning(
-                    "Step 4 SKIPPED (truth-check): analysis_id=%s, error=%s",
-                    analysis_id,
-                    exc,
-                    exc_info=True,
-                )
-                analysis.hallucination_report = HallucinationReport(
-                    warnings=[],
-                    is_safe=True,
-                )
-                truth_status = "failed"
-            step_ms = (time.perf_counter() - step_start) * 1000
-            logger.info(
-                "Step 4 DONE (truth-check): %.0fms — warnings=%d, safe=%s",
-                step_ms,
-                len(analysis.hallucination_report.warnings),
-                analysis.hallucination_report.is_safe,
-            )
-            await self._analysis_repo.update(analysis)
-            self._publish_step(analysis_id, "truthcheck", truth_status, step_ms)
-
-            # Step 5: Visual Diff
-            self._publish_step(analysis_id, "diff", "running")
-            step_start = time.perf_counter()
-            analysis.diff_result = self._compute_diff(
-                analysis.cv_text, analysis.rewritten_cv
-            )
-            step_ms = (time.perf_counter() - step_start) * 1000
-            logger.info(
-                "Step 5 DONE (diff): %.0fms — segments=%d",
-                step_ms,
-                len(analysis.diff_result.segments),
-            )
-            await self._analysis_repo.update(analysis)
-            self._publish_step(analysis_id, "diff", "done", step_ms)
-
-            # Step 6: Advanced Insights
-            self._publish_step(analysis_id, "insights", "running")
-            step_start = time.perf_counter()
-            import asyncio
-            try:
-                jd_eval_task = self._ai_service.evaluate_jd(analysis.jd_text, analysis.jd_extracted)
-                qa_task = self._ai_service.suggest_interview_questions(analysis.cv_extracted, analysis.jd_extracted)
-                salary_task = self._ai_service.negotiate_salary(analysis.cv_extracted, analysis.jd_extracted)
-
-                jd_eval_res, qa_res, salary_res = await asyncio.gather(jd_eval_task, qa_task, salary_task)
-                analysis.jd_evaluation = jd_eval_res
-                analysis.interview_questions = qa_res
-                analysis.salary_negotiation = salary_res
-                insights_status = "done"
-            except Exception as exc:
-                logger.warning(
-                    "Step 6 SKIPPED (insights): analysis_id=%s, error=%s",
-                    analysis_id,
-                    exc,
-                    exc_info=True,
-                )
-                analysis.jd_evaluation = {}
-                analysis.interview_questions = []
-                analysis.salary_negotiation = {}
-                insights_status = "failed"
-            
-            step_ms = (time.perf_counter() - step_start) * 1000
-            logger.info("Step 6 DONE (insights): %.0fms", step_ms)
-            await self._analysis_repo.update(analysis)
-            self._publish_step(analysis_id, "insights", insights_status, step_ms)
-
+            _attach_result_to_entity(analysis, result)
             analysis.mark_completed()
-            total_ms = (time.perf_counter() - pipeline_start) * 1000
-            logger.info("Pipeline COMPLETE: analysis_id=%s, total=%.0fms", analysis_id, total_ms)
+            await self._analysis_repo.update(analysis)
 
-            # Publish pipeline complete event
-            self._publish_step(analysis_id, "pipeline", "done", total_ms)
-
-        except Exception as e:
-            analysis.mark_failed()
             total_ms = (time.perf_counter() - pipeline_start) * 1000
-            logger.error(
-                "Pipeline FAILED: analysis_id=%s at %.0fms — %s",
-                analysis_id, total_ms, str(e),
-                exc_info=True,
+            self._publish_step(analysis_id, "done", "done", total_ms)
+            logger.info(
+                "Analyze pipeline COMPLETE: analysis_id=%s total=%.0fms verdict=%s overall=%.1f",
+                analysis_id,
+                total_ms,
+                result.verdict,
+                result.overall_score,
             )
-            self._publish_step(analysis_id, "pipeline", "failed", total_ms)
+        except Exception:
+            analysis.mark_failed()
+            await self._analysis_repo.update(analysis)
+            self._publish_step(
+                analysis_id,
+                "pipeline",
+                "failed",
+                (time.perf_counter() - pipeline_start) * 1000,
+            )
+            logger.error("Pipeline FAILED: analysis_id=%s", analysis_id, exc_info=True)
             raise
 
-        await self._analysis_repo.update(analysis)
         return analysis
 
-    async def _match_and_score(
-        self, cv_extracted: dict, jd_extracted: dict
-    ) -> tuple[MatchScore, SkillAnalysis]:
-        """Match CV against JD using embeddings + cosine similarity."""
+    # ─ Streaming variant — used by /analysis/chat-analyze/stream ─
+    async def execute_stream(self, analysis_id: UUID) -> AsyncIterator[str]:
+        """Yield SSE-formatted events as the pipeline runs.
 
-        cv_skills = set(s.lower() for s in cv_extracted.get("skills", []))
-        jd_required = set(s.lower() for s in jd_extracted.get("required_skills", []))
-        jd_preferred = set(s.lower() for s in jd_extracted.get("preferred_skills", []))
-        all_jd_skills = jd_required | jd_preferred
+        Each yielded value is a ``"event: <name>\\ndata: <json>\\n\\n"``
+        string ready to write to a StreamingResponse.
+        """
+        def _sse(event: str, data: object) -> str:
+            return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-        # Direct string matching first
-        matched = cv_skills & all_jd_skills
-        missing = all_jd_skills - cv_skills
-        extra = cv_skills - all_jd_skills
+        analysis = await self._analysis_repo.get_by_id(analysis_id)
+        if not analysis:
+            yield _sse("analysis_error", {"error": f"analysis {analysis_id} not found"})
+            return
 
-        # Use embeddings for semantic matching of remaining skills
-        if missing and extra:
-            missing, extra, semantic_matched = await self._semantic_match(
-                list(missing), list(extra)
+        yield _sse(
+            "analysis_start",
+            {"analysis_id": str(analysis_id), "cv_filename": analysis.cv_filename},
+        )
+
+        analysis.mark_processing()
+        await self._analysis_repo.update(analysis)
+
+        try:
+            yield _sse(
+                "analysis_step",
+                {"step": "extract", "status": "running", "label": STEPS[0]["label"]},
             )
-            matched = matched | semantic_matched
+            t0 = time.perf_counter()
+            result = await self._run_pipeline(analysis)
+            t1 = time.perf_counter()
+            yield _sse(
+                "analysis_step",
+                {"step": "extract", "status": "done", "duration_ms": round((t1 - t0) * 1000)},
+            )
+            yield _sse(
+                "analysis_step",
+                {"step": "score", "status": "done", "duration_ms": 0},
+            )
 
-        # Calculate scores
-        total_jd = len(all_jd_skills) if all_jd_skills else 1
-        skills_score = min(100.0, (len(matched) / total_jd) * 100)
-
-        # Experience & tools scores via embedding similarity
-        cv_exp_text = " ".join(cv_extracted.get("experience", []))
-        jd_exp_text = " ".join(jd_extracted.get("experience_requirements", []))
-        cv_tools_text = " ".join(cv_extracted.get("tools", []))
-        jd_tools_text = " ".join(jd_extracted.get("tools", []))
-
-        exp_score = 50.0
-        tools_score = 50.0
-        if cv_exp_text and jd_exp_text:
-            emb = await self._ai_service.get_embeddings([cv_exp_text, jd_exp_text])
-            exp_score = self._cosine_sim(emb[0], emb[1]) * 100
-        if cv_tools_text and jd_tools_text:
-            emb = await self._ai_service.get_embeddings([cv_tools_text, jd_tools_text])
-            tools_score = self._cosine_sim(emb[0], emb[1]) * 100
-
-        overall = skills_score * 0.5 + exp_score * 0.3 + tools_score * 0.2
-
-        score = MatchScore(
-            overall=round(overall, 1),
-            skills_score=round(skills_score, 1),
-            experience_score=round(exp_score, 1),
-            tools_score=round(tools_score, 1),
-        )
-
-        skill_analysis = SkillAnalysis(
-            matched_skills=[Skill(name=s) for s in matched],
-            missing_skills=[Skill(name=s) for s in missing],
-            extra_skills=[Skill(name=s) for s in extra],
-        )
-
-        logger.debug(
-            "Score breakdown: skills=%.1f, exp=%.1f, tools=%.1f → overall=%.1f",
-            skills_score, exp_score, tools_score, overall,
-        )
-
-        return score, skill_analysis
-
-    async def _semantic_match(
-        self, missing: List[str], extra: List[str], threshold: float = 0.75
-    ) -> tuple[set, set, set]:
-        """Use embeddings to find semantically similar skills."""
-
-        all_texts = missing + extra
-        embeddings = await self._ai_service.get_embeddings(all_texts)
-
-        missing_embs = embeddings[: len(missing)]
-        extra_embs = embeddings[len(missing) :]
-
-        semantic_matched = set()
-        still_missing = set(missing)
-        still_extra = set(extra)
-
-        for i, m_skill in enumerate(missing):
-            for j, e_skill in enumerate(extra):
-                sim = self._cosine_sim(missing_embs[i], extra_embs[j])
-                if sim >= threshold:
-                    semantic_matched.add(m_skill)
-                    still_missing.discard(m_skill)
-                    still_extra.discard(e_skill)
-                    break
-
-        logger.debug(
-            "Semantic match: %d matched, %d still missing, %d extra",
-            len(semantic_matched), len(still_missing), len(still_extra),
-        )
-        return still_missing, still_extra, semantic_matched
-
-    @staticmethod
-    def _cosine_sim(a: List[float], b: List[float]) -> float:
-        a_arr = np.array(a)
-        b_arr = np.array(b)
-        dot = np.dot(a_arr, b_arr)
-        norm = np.linalg.norm(a_arr) * np.linalg.norm(b_arr)
-        return float(dot / norm) if norm > 0 else 0.0
-
-    async def _check_truth(
-        self, original: str, rewritten: str, cv_extracted: dict
-    ) -> HallucinationReport:
-        """Check rewritten CV for hallucinations."""
-
-        warnings_data = await self._ai_service.check_hallucination(
-            original, rewritten, cv_extracted
-        )
-
-        warnings = []
-        for w in warnings_data:
-            level_str = w.get("level", "medium").lower()
-            level = WarningLevel(level_str) if level_str in [e.value for e in WarningLevel] else WarningLevel.MEDIUM
-            warnings.append(
-                HallucinationWarning(
-                    section=w.get("section", ""),
-                    original_text=w.get("original_text", ""),
-                    rewritten_text=w.get("rewritten_text", ""),
-                    issue_type=w.get("issue_type", "hallucination"),
-                    explanation=w.get("explanation", ""),
-                    level=level,
+            yield _sse(
+                "analysis_result",
+                {
+                    "type": "scores",
+                    "data": {
+                        "overall_score": result.overall_score,
+                        "verdict": result.verdict,
+                        "dimension_scores": {
+                            name: {"score": dim.score, "reason": dim.reason}
+                            for name, dim in result.dimension_scores.as_pairs()
+                        },
+                    },
+                },
+            )
+            yield _sse(
+                "analysis_result",
+                {
+                    "type": "keyword_report",
+                    "data": result.keyword_report.model_dump(),
+                },
+            )
+            yield _sse(
+                "analysis_result",
+                {
+                    "type": "gap_analysis",
+                    "data": result.gap_analysis.model_dump(),
+                },
+            )
+            if result.suggestions:
+                yield _sse(
+                    "analysis_result",
+                    {
+                        "type": "suggestions",
+                        "data": [s.model_dump() for s in result.suggestions],
+                    },
                 )
-            )
 
-        is_safe = not any(w.level == WarningLevel.HIGH for w in warnings)
-        return HallucinationReport(warnings=warnings, is_safe=is_safe)
+            _attach_result_to_entity(analysis, result)
+            analysis.mark_completed()
+            await self._analysis_repo.update(analysis)
 
-    @staticmethod
-    def _compute_diff(original: str, rewritten: str) -> DiffResult:
-        """Compute visual diff between original and rewritten CV."""
-
-        segments = []
-        differ = difflib.SequenceMatcher(None, original.split(), rewritten.split())
-
-        for tag, i1, i2, j1, j2 in differ.get_opcodes():
-            if tag == "equal":
-                text = " ".join(original.split()[i1:i2])
-                segments.append(DiffSegment(text=text, diff_type=DiffType.UNCHANGED))
-            elif tag == "replace":
-                old_text = " ".join(original.split()[i1:i2])
-                new_text = " ".join(rewritten.split()[j1:j2])
-                segments.append(DiffSegment(text=old_text, diff_type=DiffType.REMOVED))
-                segments.append(DiffSegment(text=new_text, diff_type=DiffType.ADDED))
-            elif tag == "delete":
-                text = " ".join(original.split()[i1:i2])
-                segments.append(DiffSegment(text=text, diff_type=DiffType.REMOVED))
-            elif tag == "insert":
-                text = " ".join(rewritten.split()[j1:j2])
-                segments.append(DiffSegment(text=text, diff_type=DiffType.ADDED))
-
-        return DiffResult(segments=segments)
+            yield _sse("analysis_done", {"analysis_id": str(analysis_id)})
+        except Exception as exc:
+            logger.error("Stream pipeline FAILED: analysis_id=%s", analysis_id, exc_info=True)
+            analysis.mark_failed()
+            await self._analysis_repo.update(analysis)
+            yield _sse("analysis_error", {"error": str(exc)})

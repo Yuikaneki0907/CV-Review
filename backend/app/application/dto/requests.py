@@ -36,6 +36,8 @@ class GenerateCVRequest(BaseModel):
     jd_text: str
     level: str = "Fresher"
     output_format: Literal["markdown", "docx"] = "markdown"
+    improve: bool = False
+    max_iterations: int = Field(default=3, ge=1, le=5)
 
 
 class ChatMessageRequest(BaseModel):
@@ -48,8 +50,18 @@ class ChatContextRequest(BaseModel):
     output_format: Literal["markdown", "docx"] = "markdown"
     template_id: Optional[str] = None
     current_cv_id: Optional[UUID] = None
+    conversation_id: Optional[UUID] = None
+
+
+class ChatSessionMessagesRequest(BaseModel):
+    messages: list[ChatMessageRequest]
 
 
 class GeneratedCVUpdateRequest(BaseModel):
     content: str
     output_format: Literal["markdown", "docx"]
+
+
+class GeneratedCVExportPreviewRequest(BaseModel):
+    content: str
+    title: Optional[str] = None

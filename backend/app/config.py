@@ -7,6 +7,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # App
     APP_NAME: str = "CV Review API"
+    ENVIRONMENT: str = "development"
     DEBUG: bool = True
     FRONTEND_URL: str = "http://localhost:3020"
 
@@ -67,6 +68,29 @@ class Settings(BaseSettings):
     MINIO_USE_SSL: bool = False
 
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.lower() in {"prod", "production"}
+
+    def validate_runtime_safety(self) -> None:
+        if not self.is_production:
+            return
+
+        errors = []
+        if self.DEBUG:
+            errors.append("DEBUG must be False in production")
+        if self.SECRET_KEY == "your-secret-key-change-in-production":
+            errors.append("SECRET_KEY must be changed in production")
+        if len(self.SECRET_KEY) < 32:
+            errors.append("SECRET_KEY must be at least 32 characters in production")
+        if self.MINIO_ACCESS_KEY == "minioadmin" or self.MINIO_SECRET_KEY == "minioadmin":
+            errors.append("MinIO credentials must be changed in production")
+        if "*" in self.CORS_ORIGINS:
+            errors.append("CORS_ORIGINS must not contain '*' in production")
+
+        if errors:
+            raise RuntimeError("Unsafe production configuration: " + "; ".join(errors))
 
 
 @lru_cache()

@@ -33,6 +33,7 @@ class SkillResponse(BaseModel):
     name: str
     category: str = ""
     proficiency: str = ""
+    reason: str = ""
 
 
 class ScoreResponse(BaseModel):
@@ -73,10 +74,13 @@ class AnalysisResponse(BaseModel):
     extra_skills: Optional[List[SkillResponse]] = None
     rewritten_cv: Optional[str] = None
     diff_segments: Optional[List[DiffSegmentResponse]] = None
+    section_diffs: Optional[List[Dict]] = None
     hallucination_warnings: Optional[List[HallucinationWarningResponse]] = None
     jd_evaluation: Optional[Dict] = None
     interview_questions: Optional[List[Dict]] = None
     salary_negotiation: Optional[Dict] = None
+    analysis_meta: Optional[Dict] = None
+    score_breakdown: Optional[Dict] = None
 
     model_config = {"from_attributes": True}
 
@@ -96,9 +100,16 @@ class GeneratedCVListResponse(BaseModel):
     conversation_id: UUID
     version: int
     status: str
+    chat_title: Optional[str] = None
     target_jd_text: Optional[str] = None
     job_title: Optional[str] = None
     level: Optional[str] = None
+    source_type: Optional[str] = None
+    source_filename: Optional[str] = None
+    is_editable: bool = True
+    preview_markdown: Optional[str] = None
+    preview_html: Optional[str] = None
+    preview_format: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -132,3 +143,15 @@ class GeneratedCVVersionResponse(BaseModel):
 class ChatContextResponse(BaseModel):
     reply: str
     generated_cv_id: Optional[UUID] = None
+    conversation_id: Optional[UUID] = None
+
+
+class ChatSessionResponse(BaseModel):
+    id: UUID
+    conversation_id: UUID
+    messages: List[Dict]
+    chat_title: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
