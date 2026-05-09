@@ -79,59 +79,6 @@ export const deleteAnalysis = (id) => api.delete(`/analysis/${id}`);
 
 // Generated CV
 export const createGeneratedCV = (data) => api.post('/generated-cvs/', data);
-
-// Phase 3: generate-and-improve. One-shot — waits for the full loop to
-// finish server-side before returning the persisted CV.
-export const improveGeneratedCV = (data) =>
-  api.post('/generated-cvs/', { ...data, improve: true });
-
-// Phase 3 streaming: SSE per-iteration progress. ``onEvent`` receives
-// ``{event, data}`` objects matching the backend events:
-//   loop_start | iteration_done | loop_done | loop_error
-export const streamImproveGeneratedCV = async (data, onEvent) => {
-  const token = localStorage.getItem('token');
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
-  const response = await fetch(`${API_BASE}/generated-cvs/improve/stream`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ ...data, improve: true }),
-  });
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(errText || `HTTP Error: ${response.status}`);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary !== -1) {
-      const chunk = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-
-      let eventText = '';
-      let dataText = '';
-      for (const line of chunk.split('\n')) {
-        if (line.startsWith('event:')) eventText = line.substring(6).trim();
-        else if (line.startsWith('data:')) dataText = line.substring(5).trim();
-      }
-      if (eventText && dataText) {
-        let parsed = dataText;
-        try { parsed = JSON.parse(dataText); } catch { /* leave as string */ }
-        onEvent({ event: eventText, data: parsed });
-      }
-      boundary = buffer.indexOf('\n\n');
-    }
-  }
-};
 export const importGeneratedCV = (formData) =>
   api.post('/generated-cvs/import', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

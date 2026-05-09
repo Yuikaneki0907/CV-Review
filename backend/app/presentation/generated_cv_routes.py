@@ -29,7 +29,6 @@ from app.application.dto.responses import (
 )
 from app.application.use_cases.edit_generated_cv import EditGeneratedCVUseCase
 from app.application.use_cases.generate_cv import GenerateCVUseCase
-from app.application.use_cases.generate_and_improve_cv import GenerateAndImproveCVUseCase
 from app.application.use_cases.import_generated_cv import ImportGeneratedCVUseCase
 from app.application.use_cases.chat_cv import ChatCVUseCase
 from app.infrastructure.ai import ai_service_factory
@@ -797,28 +796,17 @@ async def generate_cv(
             "phone_number": user.phone_number or "",
         }
 
+    use_case = GenerateCVUseCase(cv_repo, ai_service)
+
     try:
-        if req.improve:
-            improve_use_case = GenerateAndImproveCVUseCase(cv_repo, ai_service)
-            cv_entity = await improve_use_case.execute(
-                user_id=user_id,
-                job_title=req.job_title,
-                jd_text=req.jd_text,
-                level=req.level,
-                output_format=req.output_format,
-                user_profile=user_profile,
-                max_iterations=req.max_iterations,
-            )
-        else:
-            use_case = GenerateCVUseCase(cv_repo, ai_service)
-            cv_entity = await use_case.execute(
-                user_id=user_id,
-                job_title=req.job_title,
-                jd_text=req.jd_text,
-                level=req.level,
-                output_format=req.output_format,
-                user_profile=user_profile,
-            )
+        cv_entity = await use_case.execute(
+            user_id=user_id,
+            job_title=req.job_title,
+            jd_text=req.jd_text,
+            level=req.level,
+            output_format=req.output_format,
+            user_profile=user_profile,
+        )
         await session.commit()
         return _to_generated_cv_response(cv_entity)
 
@@ -829,64 +817,6 @@ async def generate_cv(
         await session.rollback()
         logger.error("Failed to generate CV: %s", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail="Lỗi khi AI tạo CV mẫu")
-
-
-@router.post("/improve/stream")
-async def improve_cv_stream(
-    req: GenerateCVRequest,
-    user_id: UUID = Depends(get_current_user_id),
-    session: AsyncSession = Depends(get_db_session),
-) -> StreamingResponse:
-    """Run the Phase 3 improvement loop and stream SSE progress events.
-
-    The request body is the same as ``POST /generated-cvs/`` — ``improve``
-    and ``max_iterations`` are honoured, ``improve`` is implicit here.
-    """
-    cv_repo = GeneratedCVRepository(session)
-    user_repo = UserRepository(session)
-    ai_service = ai_service_factory()
-
-    user = await user_repo.get_by_id(user_id)
-    user_profile = None
-    if user is not None:
-        user_profile = {
-            "full_name": user.full_name or "",
-            "email": user.email or "",
-            "phone_number": user.phone_number or "",
-        }
-
-    use_case = GenerateAndImproveCVUseCase(cv_repo, ai_service)
-
-    async def _stream():
-        try:
-            async for chunk in use_case.execute_stream(
-                user_id=user_id,
-                job_title=req.job_title,
-                jd_text=req.jd_text,
-                level=req.level,
-                output_format=req.output_format,
-                user_profile=user_profile,
-                max_iterations=req.max_iterations,
-            ):
-                yield chunk
-            # Commit AFTER the final event has been streamed so the
-            # client always sees ``loop_done`` even if the commit fails
-            # noisily (next request will retry / show the error).
-            await session.commit()
-        except Exception as exc:
-            await session.rollback()
-            logger.error("Improve stream failed: %s", exc, exc_info=True)
-            yield f"event: loop_error\ndata: {{\"error\": \"{exc}\"}}\n\n"
-
-    return StreamingResponse(
-        _stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
 
 
 @router.post("/import", response_model=GeneratedCVResponse, status_code=201)

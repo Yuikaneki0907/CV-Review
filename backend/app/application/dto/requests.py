@@ -36,8 +36,6 @@ class GenerateCVRequest(BaseModel):
     jd_text: str
     level: str = "Fresher"
     output_format: Literal["markdown", "docx"] = "markdown"
-    improve: bool = False
-    max_iterations: int = Field(default=3, ge=1, le=5)
 
 
 class ChatMessageRequest(BaseModel):

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowPathIcon,
-  ArrowTrendingUpIcon,
   ArrowUpTrayIcon,
   ChartBarIcon,
   CheckCircleIcon,
@@ -13,18 +12,10 @@ import {
   DocumentTextIcon,
   ExclamationCircleIcon,
   LightBulbIcon,
-  RocketLaunchIcon,
-  SparklesIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid';
-import {
-  createAnalysisFromGeneratedCV,
-  getAnalysis,
-  listGeneratedCVs,
-  streamChatAnalysis,
-  streamImproveGeneratedCV,
-} from '../api';
+import { createAnalysisFromGeneratedCV, getAnalysis, listGeneratedCVs, streamChatAnalysis } from '../api';
 import {
   getJdEvaluationAdvice,
   getJdEvaluationSummary,
@@ -92,20 +83,9 @@ export default function GenerateCVPage() {
   const cvFileRef = useRef(null);
   const jdFileRef = useRef(null);
 
-  // Improve mode (Phase 3) — iterative generate → analyze → revise loop.
-  const [improveJobTitle, setImproveJobTitle] = useState('');
-  const [improveLevel, setImproveLevel] = useState('Junior');
-  const [improveJdText, setImproveJdText] = useState('');
-  const [improveMaxIter, setImproveMaxIter] = useState(3);
-  const [improveRunning, setImproveRunning] = useState(false);
-  const [improveIterations, setImproveIterations] = useState([]);
-  const [improveError, setImproveError] = useState('');
-  const [improveResult, setImproveResult] = useState(null);
-
   useEffect(() => {
-    const navMode = location.state?.mode;
-    if (navMode === 'analyze' || navMode === 'improve') {
-      setMode(navMode);
+    if (location.state?.mode === 'analyze') {
+      setMode('analyze');
     }
   }, [location.state]);
 
@@ -198,44 +178,6 @@ export default function GenerateCVPage() {
     }
   };
 
-  const handleImprove = async () => {
-    if (improveRunning) return;
-    if (!improveJobTitle.trim() || !improveJdText.trim()) {
-      setImproveError('Vui lòng nhập vị trí ứng tuyển và JD.');
-      return;
-    }
-    setImproveRunning(true);
-    setImproveError('');
-    setImproveIterations([]);
-    setImproveResult(null);
-
-    try {
-      await streamImproveGeneratedCV(
-        {
-          job_title: improveJobTitle.trim(),
-          jd_text: improveJdText.trim(),
-          level: improveLevel,
-          output_format: 'markdown',
-          max_iterations: improveMaxIter,
-        },
-        ({ event, data }) => {
-          if (event === 'iteration_done') {
-            setImproveIterations((prev) => [...prev, data]);
-          } else if (event === 'loop_done') {
-            setImproveResult(data);
-          } else if (event === 'loop_error') {
-            setImproveError(data?.error || 'Có lỗi xảy ra khi tối ưu CV.');
-          }
-        }
-      );
-    } catch (e) {
-      console.error('Improve failed:', e);
-      setImproveError(e?.message || 'Kết nối thất bại. Vui lòng thử lại.');
-    } finally {
-      setImproveRunning(false);
-    }
-  };
-
   const loadCvLibrary = async () => {
     setCvLibraryLoading(true);
     setCvLibraryError('');
@@ -271,23 +213,7 @@ export default function GenerateCVPage() {
 
   const STEP_KEYS = ['extract', 'score', 'rewrite', 'truthcheck', 'insights', 'diff'];
 
-  const ModeTitleIcon =
-    mode === 'create'
-      ? DocumentPlusIcon
-      : mode === 'analyze'
-        ? DocumentMagnifyingGlassIcon
-        : SparklesIcon;
-  const MODE_LABELS = {
-    create: 'Tạo CV mới',
-    analyze: 'Phân tích CV',
-    improve: 'Tối ưu theo JD',
-  };
-  const MODE_SUBTITLES = {
-    create: 'Nhập prompt để bắt đầu từ blank document.',
-    analyze: 'Upload CV và thêm Mô tả công việc (JD) bằng text hoặc file để phân tích, chấm điểm và tối ưu.',
-    improve:
-      'Dán JD + chọn vị trí — AI sẽ tự lặp lại quá trình tạo → chấm điểm → sửa cho đến khi CV đạt ngưỡng PASS.',
-  };
+  const ModeTitleIcon = mode === 'create' ? DocumentPlusIcon : DocumentMagnifyingGlassIcon;
   const StepStateIcon = ({ step }) => {
     if (!step) return <span className="step-dot pending" aria-hidden="true" />;
     if (step.status === 'done') return <CheckCircleIcon className="step-state-icon done" />;
@@ -304,9 +230,13 @@ export default function GenerateCVPage() {
           </div>
           <h1 className="prompter-title">
             <ModeTitleIcon className="prompter-title-icon" />
-            <span>{MODE_LABELS[mode]}</span>
+            <span>{mode === 'create' ? 'Tạo CV mới' : 'Phân tích CV'}</span>
           </h1>
-          <p className="prompter-subtitle">{MODE_SUBTITLES[mode]}</p>
+          <p className="prompter-subtitle">
+            {mode === 'create'
+              ? 'Nhập prompt để bắt đầu từ blank document.'
+              : 'Upload CV và thêm Mô tả công việc (JD) bằng text hoặc file để phân tích, chấm điểm và tối ưu.'}
+          </p>
         </div>
 
         {/* Mode Toggle */}
@@ -318,10 +248,6 @@ export default function GenerateCVPage() {
           <button type="button" className={`mode-tab ${mode === 'analyze' ? 'active' : ''}`} onClick={() => setMode('analyze')}>
             <DocumentMagnifyingGlassIcon className="mode-tab-icon" />
             <span>Phân tích CV</span>
-          </button>
-          <button type="button" className={`mode-tab ${mode === 'improve' ? 'active' : ''}`} onClick={() => setMode('improve')}>
-            <SparklesIcon className="mode-tab-icon" />
-            <span>Tối ưu theo JD</span>
           </button>
         </div>
 
@@ -574,26 +500,6 @@ export default function GenerateCVPage() {
             )}
           </div>
         )}
-
-        {/* ═══ IMPROVE MODE (Phase 3) ═══ */}
-        {mode === 'improve' && (
-          <ImproveSection
-            jobTitle={improveJobTitle}
-            setJobTitle={setImproveJobTitle}
-            level={improveLevel}
-            setLevel={setImproveLevel}
-            jdText={improveJdText}
-            setJdText={setImproveJdText}
-            maxIter={improveMaxIter}
-            setMaxIter={setImproveMaxIter}
-            running={improveRunning}
-            iterations={improveIterations}
-            error={improveError}
-            result={improveResult}
-            onRun={handleImprove}
-            onOpenWorkspace={(cvId) => navigate(`/workspace/${cvId}`)}
-          />
-        )}
       </div>
 
       {cvPickerOpen && (
@@ -644,199 +550,6 @@ export default function GenerateCVPage() {
   );
 }
 
-const IMPROVE_LEVELS = ['Fresher', 'Junior', 'Middle', 'Senior', 'Lead'];
-
-const STOPPED_REASON_LABELS = {
-  passed_threshold: 'CV đã đạt ngưỡng PASS',
-  max_iterations: 'Đạt số vòng tối đa',
-  no_improvement: 'Điểm không tăng — dừng để tiết kiệm',
-  insufficient_jd: 'JD không đủ thông tin để chấm',
-  extractor_failed: 'Không trích xuất được CV',
-};
-
-const VERDICT_COLORS = {
-  PASS: 'green',
-  BORDERLINE: 'yellow',
-  FAIL: 'red',
-};
-
-function ImproveSection({
-  jobTitle,
-  setJobTitle,
-  level,
-  setLevel,
-  jdText,
-  setJdText,
-  maxIter,
-  setMaxIter,
-  running,
-  iterations,
-  error,
-  result,
-  onRun,
-  onOpenWorkspace,
-}) {
-  const canSubmit = jobTitle.trim() && jdText.trim() && !running;
-
-  return (
-    <div className="analyze-section">
-      <div className="analyze-upload-grid">
-        <div className="analyze-upload-card">
-          <h3><DocumentTextIcon className="analyze-heading-icon" /> Vị trí ứng tuyển</h3>
-          <input
-            type="text"
-            className="analyze-jd-textarea"
-            style={{ minHeight: 'auto', height: '3rem' }}
-            placeholder="VD: Backend Engineer"
-            value={jobTitle}
-            onChange={(e) => setJobTitle(e.target.value)}
-            disabled={running}
-          />
-          <div style={{ marginTop: '1rem' }}>
-            <label className="prompter-helper-text" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              Cấp độ
-            </label>
-            <select
-              className="analyze-jd-textarea"
-              style={{ minHeight: 'auto', height: '3rem' }}
-              value={level}
-              onChange={(e) => setLevel(e.target.value)}
-              disabled={running}
-            >
-              {IMPROVE_LEVELS.map((lv) => (
-                <option key={lv} value={lv}>{lv}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ marginTop: '1rem' }}>
-            <label className="prompter-helper-text" style={{ display: 'block', marginBottom: '0.5rem' }}>
-              Số vòng tối ưu (1–5)
-            </label>
-            <select
-              className="analyze-jd-textarea"
-              style={{ minHeight: 'auto', height: '3rem' }}
-              value={maxIter}
-              onChange={(e) => setMaxIter(Number(e.target.value))}
-              disabled={running}
-            >
-              {[1, 2, 3, 4, 5].map((n) => (
-                <option key={n} value={n}>{n}{n === 3 ? ' (khuyên dùng)' : ''}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="analyze-upload-card">
-          <h3><ClipboardDocumentListIcon className="analyze-heading-icon" /> Mô tả công việc (JD)</h3>
-          <textarea
-            className="analyze-jd-textarea"
-            value={jdText}
-            onChange={(e) => setJdText(e.target.value)}
-            placeholder={"Dán JD tại đây...\n\nYêu cầu:\n- 3 năm kinh nghiệm Python\n- FastAPI, Docker, PostgreSQL..."}
-            rows={10}
-            disabled={running}
-          />
-        </div>
-      </div>
-
-      <button
-        className="btn-primary analyze-start-btn"
-        disabled={!canSubmit}
-        onClick={onRun}
-      >
-        <RocketLaunchIcon className="analyze-heading-icon" style={{ display: 'inline-block', verticalAlign: '-3px', marginRight: '0.5rem' }} />
-        {running ? 'Đang tối ưu...' : 'Bắt đầu tối ưu'}
-      </button>
-
-      {(running || iterations.length > 0) && (
-        <div className="analyze-progress-card">
-          <h3><ArrowTrendingUpIcon className="analyze-heading-icon" /> Tiến trình các vòng tối ưu</h3>
-          <div className="analyze-steps">
-            {iterations.map((it) => {
-              const mode = it.iteration_index === 0 ? 'generate' : 'revise';
-              const color = it.verdict ? VERDICT_COLORS[it.verdict] || '' : '';
-              const score = typeof it.overall_score === 'number' ? it.overall_score.toFixed(1) : '—';
-              return (
-                <div key={it.iteration_index} className="analyze-step done">
-                  <CheckCircleIcon className="step-state-icon done" />
-                  <span className="step-text">
-                    Vòng {it.iteration_index + 1}/{maxIter} — {mode === 'generate' ? 'Tạo CV' : 'Sửa CV'} →{' '}
-                    <strong style={{ color: color === 'green' ? '#22c55e' : color === 'yellow' ? '#eab308' : color === 'red' ? '#ef4444' : 'inherit' }}>
-                      {score} điểm
-                    </strong>
-                    {it.verdict ? ` (${it.verdict})` : ''}
-                  </span>
-                  <span className="step-time">{(it.latency_ms / 1000).toFixed(1)}s</span>
-                </div>
-              );
-            })}
-            {running && iterations.length < maxIter && (
-              <div className="analyze-step running">
-                <ClockIcon className="step-state-icon running" />
-                <span className="step-text">
-                  Vòng {iterations.length + 1}/{maxIter} — đang xử lý...
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <div className="analyze-error">
-          <ExclamationCircleIcon className="inline-status-icon" /> {error}
-        </div>
-      )}
-
-      {result && (
-        <>
-          <div className="analyze-results-section">
-            <h3><ChartBarIcon className="analyze-heading-icon" /> Kết quả tối ưu</h3>
-            <div className="analyze-scores-grid">
-              <div
-                className={`analyze-score-card large score-${
-                  result.overall_score >= 80
-                    ? 'green'
-                    : result.overall_score >= 50
-                      ? 'yellow'
-                      : 'red'
-                }`}
-              >
-                <div className="score-value">
-                  {typeof result.overall_score === 'number' ? result.overall_score.toFixed(1) : '—'}
-                </div>
-                <div className="score-label">Điểm tốt nhất ({result.verdict || '—'})</div>
-              </div>
-              <div className="analyze-score-card">
-                <div className="score-value">{(result.best_iteration_index ?? 0) + 1}</div>
-                <div className="score-label">Vòng tốt nhất</div>
-              </div>
-              <div className="analyze-score-card">
-                <div className="score-value">{result.iteration_count ?? iterations.length}</div>
-                <div className="score-label">Tổng số vòng</div>
-              </div>
-            </div>
-            <p className="prompter-helper-text" style={{ marginTop: '1rem' }}>
-              Lý do dừng: <strong>{STOPPED_REASON_LABELS[result.stopped_reason] || result.stopped_reason}</strong>
-            </p>
-          </div>
-
-          <div className="analyze-done-banner">
-            <CheckCircleIcon className="inline-status-icon" />
-            CV tối ưu đã được lưu.{' '}
-            <button
-              type="button"
-              className="analyze-detail-link"
-              onClick={() => onOpenWorkspace(result.cv_id)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
-            >
-              Mở trong workspace để chỉnh tiếp →
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 function GeneratedCvAnalysisNote({ meta, scoreBreakdown }) {
   const needs = meta?.needs_user_info || scoreBreakdown?.needs_user_info || [];
