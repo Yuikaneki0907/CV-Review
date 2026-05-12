@@ -21,13 +21,23 @@ from app.application.services.generation.improvement_loop import (
     run_improvement_loop,
     run_improvement_loop_events,
 )
+from app.application.services.generation.quality_gate import (
+    DEFAULT_MAX_REVISIONS,
+    DEFAULT_PASS_THRESHOLD,
+    QualityGateResult,
+    ensure_quality,
+)
 
 __all__ = [
     "DEFAULT_MAX_ITERATIONS",
+    "DEFAULT_MAX_REVISIONS",
+    "DEFAULT_PASS_THRESHOLD",
     "GenerationOutput",
     "LoopOutcome",
+    "QualityGateResult",
     "RevisionOutput",
     "build_profile_section",
+    "ensure_quality",
     "format_guide_for",
     "generate_cv",
     "revise_cv",

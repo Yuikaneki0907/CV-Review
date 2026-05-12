@@ -3,12 +3,15 @@ from typing import List, Dict, Optional, Tuple
 from uuid import UUID, uuid4
 
 from app.application.exceptions import AIProviderEmptyResponseError
+from app.application.services.generation import ensure_quality
 from app.domain.entities.generated_cv import GeneratedCV
 from app.domain.schemas.cv_schema import PLACEHOLDER_PATTERN
 from app.application.interfaces.ai_service import IAIService
 from app.application.interfaces.repositories import IGeneratedCVRepository
 from app.domain.cv_templates import get_template
 from app.logger import get_logger
+
+MIN_JD_CHARS_FOR_GATE = 120  # mirrors _extract_target_jd_from_messages threshold
 
 logger = get_logger("app.application.use_cases.chat_cv")
 MIN_GENERATED_CV_CHARS = 80
@@ -303,6 +306,54 @@ class ChatCVUseCase:
 
         return ai_reply, None
 
+    async def _apply_quality_gate(
+        self,
+        cv_content: str,
+        messages: List[Dict[str, str]],
+        current_cv: Optional[GeneratedCV],
+        output_format: str,
+    ) -> str:
+        """Run the analyze-and-revise quality gate when a JD is available.
+
+        Returns the (possibly-improved) CV markdown. Skips silently when no
+        JD signal is present in the conversation — and never raises: if the
+        gate itself errors out we keep the original CV so the user still
+        gets a saved draft.
+        """
+        jd_text = self._extract_target_jd_from_messages(messages)
+        if not jd_text and current_cv:
+            stored_jd = (current_cv.target_jd_text or "").strip()
+            if (
+                len(stored_jd) >= MIN_JD_CHARS_FOR_GATE
+                and stored_jd != "Được cung cấp qua chat"
+            ):
+                jd_text = stored_jd
+
+        if not jd_text or len(jd_text) < MIN_JD_CHARS_FOR_GATE:
+            logger.info("Quality gate skipped: no JD in chat context")
+            return cv_content
+
+        try:
+            result = await ensure_quality(
+                cv_content=cv_content,
+                jd_text=jd_text,
+                ai_service=self.ai,
+                output_format=output_format,
+            )
+        except Exception as exc:
+            logger.warning("Quality gate errored, keeping original CV: %s", exc, exc_info=True)
+            return cv_content
+
+        logger.info(
+            "Quality gate: passed=%s initial=%.1f final=%.1f revisions=%d warnings=%s",
+            result.passed_gate,
+            result.initial_score,
+            result.final_score,
+            result.revisions_used,
+            result.warnings,
+        )
+        return result.content
+
     async def _build_generated_cv(
         self,
         *,
@@ -464,6 +515,13 @@ class ChatCVUseCase:
                 )
                 return SAFE_INVALID_CV_MESSAGE, None, active_conversation_id
 
+            cv_content = await self._apply_quality_gate(
+                cv_content=cv_content,
+                messages=messages,
+                current_cv=current_cv,
+                output_format=output_format,
+            )
+
             built_payload = await self._build_generated_cv(
                 user_id=user_id,
                 conversation_id=active_conversation_id,
@@ -572,7 +630,14 @@ class ChatCVUseCase:
         
         async def save_cv_entity(cv_raw_text: str, reply_text: str) -> tuple[UUID, str]:
             cv_content = self._clean_cv_markdown(cv_raw_text)
-            
+
+            cv_content = await self._apply_quality_gate(
+                cv_content=cv_content,
+                messages=messages,
+                current_cv=current_cv,
+                output_format=output_format,
+            )
+
             clean_reply = (reply_text or "").strip()
             if not clean_reply:
                 clean_reply = "*(Đã tạo CV thành công)*"
@@ -641,7 +706,7 @@ class ChatCVUseCase:
                                 cv_text += out
                             in_cv = False
                             
-                            yield f"event: status\ndata: {json.dumps({'state': 'saving_version', 'label': 'Đang lưu phiên bản CV mới...'})}\n\n"
+                            yield f"event: status\ndata: {json.dumps({'state': 'saving_version', 'label': 'Đang chấm điểm + lưu phiên bản CV...'})}\n\n"
                             saved_cv_id, saved_cv_content = await save_cv_entity(cv_text, ai_reply)
                             yield f"event: cv_chunk\ndata: {json.dumps(saved_cv_content)}\n\n"
                             yield f"event: cv_id\ndata: {json.dumps(str(saved_cv_id))}\n\n"
@@ -662,7 +727,7 @@ class ChatCVUseCase:
                     cv_text += buffer
 
             if cv_text and not saved_cv_id:
-                yield f"event: status\ndata: {json.dumps({'state': 'saving_version', 'label': 'Đang lưu phiên bản CV mới...'})}\n\n"
+                yield f"event: status\ndata: {json.dumps({'state': 'saving_version', 'label': 'Đang chấm điểm + lưu phiên bản CV...'})}\n\n"
                 saved_cv_id, saved_cv_content = await save_cv_entity(cv_text, ai_reply)
                 yield f"event: cv_chunk\ndata: {json.dumps(saved_cv_content)}\n\n"
                 yield f"event: cv_id\ndata: {json.dumps(str(saved_cv_id))}\n\n"
@@ -688,7 +753,7 @@ class ChatCVUseCase:
 
                 clean_reply, fallback_cv = self._extract_final_cv(ai_reply)
                 if fallback_cv:
-                    yield f"event: status\ndata: {json.dumps({'state': 'saving_version', 'label': 'Đang lưu phiên bản CV mới...'})}\n\n"
+                    yield f"event: status\ndata: {json.dumps({'state': 'saving_version', 'label': 'Đang chấm điểm + lưu phiên bản CV...'})}\n\n"
                     saved_cv_id, saved_cv_content = await save_cv_entity(fallback_cv, clean_reply)
                     yield f"event: cv_chunk\ndata: {json.dumps(saved_cv_content)}\n\n"
                     yield f"event: cv_id\ndata: {json.dumps(str(saved_cv_id))}\n\n"
