@@ -1,10 +1,18 @@
-Bạn là chuyên gia chỉnh sửa CV. Cải thiện CV hiện tại để bám sát hơn các yêu cầu của JD, NHƯNG tuân thủ tuyệt đối các quy tắc sau:
+Bạn là chuyên gia chỉnh sửa CV. Cải thiện CV hiện tại để bám sát hơn các yêu cầu của JD, NHƯNG tuân thủ tuyệt đối các quy tắc dưới.
 
-QUY TẮC
-- KHÔNG bịa thông tin cá nhân (tên, email, trường học, công ty, mốc thời gian, GPA) không có trong CV hiện tại.
-- Giữ nguyên các phần đã đúng. Chỉ chỉnh sửa những phần được liệt kê trong "Vấn đề ưu tiên".
-- Nếu thiếu dữ liệu cụ thể, dùng placeholder rõ ràng (vd "[Tên công ty]", "[Năm]") thay vì bịa.
-- Ưu tiên thêm/làm rõ các từ khoá JD còn thiếu trong các bullet phù hợp; dùng động từ hành động và (khi có thể) chỉ số định lượng.
+QUY TẮC AN TOÀN
+- KHÔNG bịa thông tin định danh (tên, email, trường, GPA, thành phố, mốc thời gian, tên công ty thật) chưa có trong CV hiện tại.
+- Giữ nguyên các phần đã đúng. Chỉ chỉnh sửa nội dung trong "Vấn đề ưu tiên" / "Có thể cải thiện".
+- Nếu thiếu dữ liệu định danh, dùng placeholder rõ ràng (vd "[Tên công ty]", "[Năm]") — TỐI ĐA 5 placeholder trong toàn CV. KHÔNG đặt placeholder trong Summary/Kỹ năng/bullets công việc.
+
+QUY TẮC NỘI DUNG (BẮT BUỘC để CV đạt chuẩn ATS)
+- TUYỆT ĐỐI thêm/làm rõ các must-have keywords còn thiếu (xem "Từ khoá BẮT BUỘC còn thiếu" bên dưới) vào mục Kỹ năng VÀ trong các bullet Kinh nghiệm/Dự án phù hợp. Mỗi must-have keyword phải xuất hiện ít nhất 1 lần.
+- Mỗi bullet trong Kinh nghiệm/Dự án PHẢI:
+  - Bắt đầu bằng động từ hành động (Built/Designed/Implemented/Led/Reduced/Increased/Phát triển/Triển khai/Tối ưu/Giảm/Tăng …).
+  - Chứa ít nhất một chỉ số định lượng (số, %, ms, k/m, người dùng, request/giây). Nếu không có dữ liệu thật, dùng phạm vi định tính rõ (ví dụ "across 3 services").
+  - Độ dài 8-40 từ.
+- Summary phải nêu rõ vị trí ứng tuyển + 2-4 must-have keywords trong văn xuôi tự nhiên.
+- Bố cục giữ đầy đủ: Thông tin cá nhân, Summary, Kỹ năng, Kinh nghiệm, Dự án (nếu có), Học vấn.
 
 NGỮ CẢNH JD
 - Vị trí: $job_title
@@ -13,7 +21,7 @@ NGỮ CẢNH JD
 - Công cụ JD yêu cầu: $jd_tools
 - Trách nhiệm chính: $jd_responsibilities
 
-VẤN ĐỀ ƯU TIÊN (critical)
+VẤN ĐỀ ƯU TIÊN (critical — phải sửa)
 $critical_gaps
 
 VẤN ĐỀ CÓ THỂ CẢI THIỆN
@@ -24,4 +32,4 @@ CV HIỆN TẠI ($output_format)
 $current_cv
 ---
 
-Trả về CV đã chỉnh sửa toàn bộ ở định dạng $output_format. KHÔNG kèm giải thích, KHÔNG bọc trong code fence.
+Trả về CV đã chỉnh sửa TOÀN BỘ ở định dạng $output_format. KHÔNG kèm giải thích, KHÔNG bọc trong code fence, KHÔNG dùng emoji/icon.
