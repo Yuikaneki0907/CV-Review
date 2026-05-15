@@ -77,6 +77,14 @@ export const createAnalysisFromGeneratedCV = (id, jdText, jdFile = null) => {
 
 export const deleteAnalysis = (id) => api.delete(`/analysis/${id}`);
 
+export const classifyDocument = (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  return api.post('/analysis/classify-document', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
 // Generated CV
 export const createGeneratedCV = (data) => api.post('/generated-cvs/', data);
 export const importGeneratedCV = (formData) =>
@@ -96,6 +104,7 @@ export const getGeneratedCVVersions = (id) => api.get(`/generated-cvs/${id}/vers
 export const deleteGeneratedCV = (id) => api.delete(`/generated-cvs/${id}`);
 export const createGeneratedCVVersion = (id, data) => api.post(`/generated-cvs/${id}/versions`, data);
 export const updateGeneratedCV = (id, data) => api.patch(`/generated-cvs/${id}`, data);
+export const normalizeImportedCV = (id) => api.post(`/generated-cvs/${id}/normalize`);
 export const chatCVGeneration = (messages, outputFormat = 'markdown', templateId = null, currentCvId = null, conversationId = null) =>
   api.post('/generated-cvs/chat', {
     messages,

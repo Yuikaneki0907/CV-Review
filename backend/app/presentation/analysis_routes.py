@@ -39,7 +39,7 @@ from app.infrastructure.celery.tasks import run_analysis_task
 from app.infrastructure.database.repositories.analysis_repository import AnalysisRepository
 from app.infrastructure.database.repositories.cv_file_repository import CVFileRepository
 from app.infrastructure.database.repositories.generated_cv_repository import GeneratedCVRepository
-from app.infrastructure.database.session import get_db_session
+from app.infrastructure.database.session import async_session_factory, get_db_session
 from app.infrastructure.file_parsers.upload_validation import read_and_validate_upload
 from app.infrastructure.storage.minio_storage import MinioFileStorage
 from app.logger import get_logger
@@ -181,6 +181,41 @@ def _build_generated_analysis_meta(cv_entity, cv_text: str) -> dict:
         "generated_cv_id": str(cv_entity.id),
         "generation_mode": generation_mode,
         "source_target_jd_text": target_jd,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────
+# POST /analysis/classify-document
+# ─────────────────────────────────────────────────────────────────
+@router.post("/classify-document")
+async def classify_document(
+    file: UploadFile = File(...),
+    user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    """Classify an uploaded document as CV / JD / other.
+
+    Light-weight endpoint used by the workspace UI to decide what to do
+    with an attachment BEFORE triggering the full analyze pipeline.
+    """
+    settings = get_settings()
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="File name is required")
+
+    _, filename, extracted_text = await _read_upload_text(
+        file,
+        allowed_types={"pdf", "docx", "txt", "md"},
+        max_size_mb=settings.MAX_FILE_SIZE_MB,
+        error_label="Chỉ hỗ trợ file PDF, DOCX, TXT hoặc MD",
+    )
+    if not extracted_text.strip():
+        raise HTTPException(status_code=400, detail="Không trích xuất được nội dung từ file")
+
+    classification = await _classify_uploaded_document(extracted_text, filename)
+    return {
+        "filename": filename,
+        "document_type": classification.get("document_type", "other"),
+        "confidence": classification.get("confidence", 0.0),
+        "reason": classification.get("reason", ""),
     }
 
 
@@ -553,12 +588,24 @@ async def chat_analyze_stream(
     )
     await session.commit()
 
+    # Capture id before the request-scoped `session` is torn down — FastAPI runs
+    # the `Depends(get_db_session)` cleanup the moment this handler returns, so
+    # the StreamingResponse body must NOT reuse `session`. We open a fresh one
+    # below and commit it explicitly when the pipeline finishes.
+    analysis_id = analysis.id
     ai_service = ai_service_factory()
-    use_case = AnalyzeCVUseCase(analysis_repo, ai_service)
 
     async def _stream() -> "asyncio.AsyncGenerator[str, None]":
-        async for chunk in use_case.execute_stream(analysis.id):
-            yield chunk
+        async with async_session_factory() as body_session:
+            body_repo = AnalysisRepository(body_session)
+            body_use_case = AnalyzeCVUseCase(body_repo, ai_service)
+            try:
+                async for chunk in body_use_case.execute_stream(analysis_id):
+                    yield chunk
+                await body_session.commit()
+            except Exception:
+                await body_session.rollback()
+                raise
 
     return StreamingResponse(
         _stream(),

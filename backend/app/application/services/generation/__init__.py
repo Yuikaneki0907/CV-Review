@@ -21,6 +21,11 @@ from app.application.services.generation.improvement_loop import (
     run_improvement_loop,
     run_improvement_loop_events,
 )
+from app.application.services.generation.normalize_import import (
+    CONTENT_LOSS_TOLERANCE,
+    NormalizeOutput,
+    normalize_imported_cv,
+)
 from app.application.services.generation.quality_gate import (
     DEFAULT_MAX_REVISIONS,
     DEFAULT_PASS_THRESHOLD,
@@ -29,17 +34,20 @@ from app.application.services.generation.quality_gate import (
 )
 
 __all__ = [
+    "CONTENT_LOSS_TOLERANCE",
     "DEFAULT_MAX_ITERATIONS",
     "DEFAULT_MAX_REVISIONS",
     "DEFAULT_PASS_THRESHOLD",
     "GenerationOutput",
     "LoopOutcome",
+    "NormalizeOutput",
     "QualityGateResult",
     "RevisionOutput",
     "build_profile_section",
     "ensure_quality",
     "format_guide_for",
     "generate_cv",
+    "normalize_imported_cv",
     "revise_cv",
     "run_improvement_loop",
     "run_improvement_loop_events",

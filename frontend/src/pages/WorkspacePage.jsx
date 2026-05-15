@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
+  classifyDocument,
   createAnalysisFromGeneratedCV,
   createChatSession,
   createGeneratedCVVersion,
@@ -10,7 +11,9 @@ import {
   getLatestConversationCV,
   getGeneratedCV,
   getGeneratedCVVersions,
+  importGeneratedCV,
   importGeneratedCVVersion,
+  normalizeImportedCV,
   streamChatAnalysis,
   streamChatCVGeneration,
   updateChatSessionMessages,
@@ -294,6 +297,7 @@ export default function WorkspacePage() {
   const [exporting, setExporting] = useState(false);
   const [analyzingCurrentCv, setAnalyzingCurrentCv] = useState(false);
   const [savingEdits, setSavingEdits] = useState(false);
+  const [normalizingImport, setNormalizingImport] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [chatStatus, setChatStatus] = useState(null);
   const [versionHistory, setVersionHistory] = useState([]);
@@ -957,23 +961,110 @@ export default function WorkspacePage() {
       return;
     }
 
-    if (!attachedCvFile || !analysisText) return;
+    if (!attachedCvFile) return;
 
+    // No CV is open yet → we don't know up front whether the attachment is a
+    // CV or a JD. Ask the backend to classify it so we route correctly instead
+    // of hard-coding "file = CV, text = JD".
+    const MIN_JD_CHARS = 60;
     const cvFileName = attachedCvFile.name;
-    const newMsgs = [
-      ...messages,
-      {
-        role: 'user',
-        content: `Phân tích tài liệu: **${cvFileName}**\n\n**Job Description:**\n${analysisText}`,
-      },
-    ];
-    setMessages(newMsgs);
+    const userBubble = analysisText
+      ? `Đính kèm tài liệu: **${cvFileName}**\n\n${analysisText}`
+      : `Đính kèm tài liệu: **${cvFileName}**`;
+    const baseMsgs = [...messages, { role: 'user', content: userBubble }];
+    setMessages(baseMsgs);
     setLoading(true);
+    setChatStatus({ state: 'classifying', label: 'Đang xác định tài liệu là CV hay JD...' });
+    setShowAttachPanel(false);
+
+    let classification;
+    try {
+      const res = await classifyDocument(attachedCvFile);
+      classification = res.data;
+    } catch (err) {
+      console.error('Failed to classify attached document:', err);
+      const detail = err.response?.data?.detail || 'Không đọc được tài liệu đính kèm. Vui lòng thử lại.';
+      const failedMsgs = [...baseMsgs, { role: 'assistant', content: detail }];
+      setMessages(failedMsgs);
+      await persistChatMessages(failedMsgs);
+      setLoading(false);
+      setChatStatus(null);
+      setAttachedCvFile(null);
+      setAttachedJdText('');
+      setInputValue('');
+      return;
+    }
+
+    const documentType = classification?.document_type;
+    const isCv = documentType === 'cv';
+    const isJd = documentType === 'job_description';
+
+    if (!isCv) {
+      const fallbackMsg = isJd
+        ? `Tài liệu **${cvFileName}** có vẻ là Job Description, không phải CV. Hãy đính kèm CV của bạn để mình bắt đầu phân tích nhé.`
+        : `Mình chưa xác định được tài liệu **${cvFileName}** là CV hay JD (${classification?.reason || 'không đủ tín hiệu'}). Bạn có thể tải lại file CV rõ ràng hơn không?`;
+      const finalMsgs = [...baseMsgs, { role: 'assistant', content: fallbackMsg }];
+      setMessages(finalMsgs);
+      await persistChatMessages(finalMsgs);
+      setLoading(false);
+      setChatStatus(null);
+      setAttachedCvFile(null);
+      setAttachedJdText('');
+      setInputValue('');
+      return;
+    }
+
+    // File is classified as a CV. If the user did NOT type a JD-sized blob,
+    // treat the upload as "import this CV into the workspace" instead of
+    // forcing the (useless) analyze pipeline with a non-JD text as JD.
+    if (analysisText.length < MIN_JD_CHARS) {
+      try {
+        setChatStatus({ state: 'importing_cv', label: 'Đang import CV vào workspace...' });
+        const formData = new FormData();
+        formData.append('cv_file', attachedCvFile);
+        const importRes = await importGeneratedCV(formData);
+        const importedDocument = importRes.data;
+        const editorState = extractEditorStateFromDocument(importedDocument);
+        const importMsg = analysisText
+          ? `Mình đã nhận diện đây là CV và import vào workspace. Mình sẽ tiếp tục dựa trên nội dung CV này. Ghi chú thêm của bạn: "${analysisText}"`
+          : `Mình đã nhận diện đây là CV và import vào workspace. Bạn muốn mình giúp gì tiếp theo? (ví dụ: dán JD để chấm điểm, hoặc yêu cầu chỉnh sửa.)`;
+        const finalMsgs = [...baseMsgs, { role: 'assistant', content: importMsg }];
+        setCvDocument(importedDocument);
+        setStaticTemplateTitle('');
+        setEditorInstanceKey(`doc:${importedDocument.id}`);
+        setEditableContent(editorState.value);
+        setEditableContentFormat(editorState.valueFormat);
+        setEditableMarkdown(editorState.markdown);
+        setDocumentDirty(false);
+        setOutputFormat(inferOutputFormatFromDocument(importedDocument, outputFormat));
+        setMessages(finalMsgs);
+        await persistChatMessages(finalMsgs);
+        notifyGeneratedCvHistoryChanged();
+        if (importedDocument.id && importedDocument.id !== id) {
+          navigate(`/workspace/${importedDocument.id}`, { replace: true, state: { keepMessages: true } });
+        }
+      } catch (err) {
+        console.error('Failed to import classified CV into workspace:', err);
+        const detail = err.response?.data?.detail || 'Không thể import CV vào workspace. Vui lòng thử lại.';
+        const finalMsgs = [...baseMsgs, { role: 'assistant', content: detail }];
+        setMessages(finalMsgs);
+        await persistChatMessages(finalMsgs);
+      } finally {
+        setLoading(false);
+        setChatStatus(null);
+        setAttachedCvFile(null);
+        setAttachedJdText('');
+        setInputValue('');
+      }
+      return;
+    }
+
+    // CV + substantive JD text → run the original analyze pipeline.
+    const newMsgs = baseMsgs;
     setChatStatus(null);
     setAnalysisMode(true);
     setAnalysisSteps({});
     setAnalysisResults(null);
-    setShowAttachPanel(false);
     let finalMessagesToPersist = null;
 
     try {
@@ -1043,7 +1134,7 @@ export default function WorkspacePage() {
       showAttachPanel &&
       (
         (cvDocument && (attachedCvFile || inputValue.trim())) ||
-        (!cvDocument && attachedCvFile && inputValue.trim())
+        (!cvDocument && attachedCvFile)
       )
     ) {
       handleAnalyze();
@@ -1062,17 +1153,37 @@ export default function WorkspacePage() {
     ? inferOutputFormatFromDocument(cvDocument, outputFormat)
     : normalizeOutputFormat(outputFormat);
   const hasUnsavedEdits = Boolean(cvDocument) && documentDirty;
-  const isImportedDocument = cvDocument?.generated_content?.import_preview_format === 'html';
+  const importedSourceType = cvDocument?.base_profile_data?.source_type || null;
+  // Raw imported CV = parsed straight from the user's PDF/DOCX, no AI cleanup
+  // has run on it yet. We expose the "AI sắp xếp lại" button only in this
+  // state, and label it "Bản trích nháp" so the user knows the structure may
+  // be lossy.
+  const isRawImportedDraft = importedSourceType === 'uploaded_cv';
+  const isNormalizedImport = importedSourceType === 'uploaded_cv_normalized';
+  const isImportedDocument = isRawImportedDraft
+    || isNormalizedImport
+    || cvDocument?.generated_content?.import_preview_format === 'html';
   const isStaticTemplate = Boolean(!cvDocument && templateId && editableContent);
   const documentTitle = cvDocument
-    ? cvDocument.base_profile_data?.job_title || (isImportedDocument ? 'CV đã import' : 'CV đã tạo')
+    ? cvDocument.base_profile_data?.job_title
+      || (isRawImportedDraft
+        ? 'Bản trích nháp'
+        : isNormalizedImport
+          ? 'CV đã import (đã chuẩn hoá)'
+          : isImportedDocument
+            ? 'CV đã import'
+            : 'CV đã tạo')
     : isStaticTemplate
       ? staticTemplateTitle || 'Mẫu CV có sẵn'
       : 'Workspace CV';
   const documentSubtitle = cvDocument
-    ? isImportedDocument
-      ? 'Nội dung đã được chuyển thành bản chỉnh sửa trực tiếp từ file PDF/DOCX.'
-      : 'Chỉnh sửa nội dung và lưu mỗi lần thành một version mới.'
+    ? isRawImportedDraft
+      ? 'Đây là bản trích thô từ file PDF/DOCX, có thể chưa chuẩn cấu trúc. Bấm "AI sắp xếp lại" để bố cục gọn hơn (không thêm/bớt nội dung).'
+      : isNormalizedImport
+        ? 'AI đã sắp xếp lại bố cục. Nội dung gốc được giữ nguyên — bạn có thể chỉnh sửa tiếp như bình thường.'
+        : isImportedDocument
+          ? 'Nội dung đã được chuyển thành bản chỉnh sửa trực tiếp từ file PDF/DOCX.'
+          : 'Chỉnh sửa nội dung và lưu mỗi lần thành một version mới.'
     : isStaticTemplate
       ? 'Mẫu CV có sẵn đã được mở trực tiếp. Chỉnh nội dung trong editor hoặc chat tiếp nếu cần biến đổi bằng AI.'
       : 'Tài liệu sẽ xuất hiện tại đây sau khi bạn tạo hoặc import CV.';
@@ -1216,23 +1327,72 @@ export default function WorkspacePage() {
     window.requestAnimationFrame(() => chatInputRef.current?.focus());
   };
 
+  const handleNormalizeImport = async () => {
+    if (!cvDocument?.id || normalizingImport) return;
+    if (hasUnsavedEdits) {
+      setSaveMessage('Bạn đang có chỉnh sửa chưa lưu. Lưu phiên bản mới trước khi chạy AI sắp xếp.');
+      return;
+    }
+
+    setNormalizingImport(true);
+    setSaveMessage('AI đang sắp xếp lại bố cục (không thay đổi nội dung)...');
+    try {
+      const res = await normalizeImportedCV(cvDocument.id);
+      const data = res.data || {};
+      if (!data.normalize_changed) {
+        const warnings = Array.isArray(data.normalize_warnings) ? data.normalize_warnings : [];
+        const reasonMap = {
+          ai_provider_failed: 'AI provider lỗi',
+          ai_returned_empty: 'AI không trả về nội dung',
+          cv_too_short: 'Kết quả quá ngắn',
+          content_loss_detected: 'AI làm mất nội dung, đã giữ bản gốc',
+          input_empty: 'CV rỗng',
+        };
+        const detail = warnings.map((w) => reasonMap[w] || w).join('; ') || 'không có thay đổi';
+        setSaveMessage(`Chưa sắp xếp lại được: ${detail}.`);
+        return;
+      }
+
+      const normalizedDocument = data;
+      const editorState = extractEditorStateFromDocument(normalizedDocument);
+      setCvDocument(normalizedDocument);
+      setEditorInstanceKey(`doc:${normalizedDocument.id}`);
+      setEditableContent(editorState.value);
+      setEditableContentFormat(editorState.valueFormat);
+      setEditableMarkdown(editorState.markdown);
+      setDocumentDirty(false);
+      setOutputFormat(inferOutputFormatFromDocument(normalizedDocument, documentFormat));
+      setSaveMessage(`AI đã chuẩn hoá bố cục → lưu thành v${normalizedDocument.version}.`);
+      notifyGeneratedCvHistoryChanged();
+      if (normalizedDocument.id && normalizedDocument.id !== id) {
+        navigate(`/workspace/${normalizedDocument.id}`, { replace: true, state: { keepMessages: true } });
+      }
+    } catch (err) {
+      console.error('Failed to normalize imported CV:', err);
+      const detail = err.response?.data?.detail || 'Không thể chuẩn hoá CV. Vui lòng thử lại.';
+      setSaveMessage(detail);
+    } finally {
+      setNormalizingImport(false);
+    }
+  };
+
   const isAttachMode = showAttachPanel;
   const canSubmitComposer = loading
     ? false
     : isAttachMode
       ? cvDocument
         ? Boolean(attachedCvFile || inputValue.trim())
-        : Boolean(attachedCvFile && inputValue.trim())
+        : Boolean(attachedCvFile)
       : Boolean(inputValue.trim());
   const composerPlaceholder = isAttachMode
     ? cvDocument
       ? 'Dán JD hoặc đính kèm tài liệu...'
-      : 'Đính kèm CV và dán JD...'
+      : 'Đính kèm CV (dán JD nếu muốn chấm điểm)...'
     : 'Nhập yêu cầu hoặc đính kèm tài liệu...';
   const composerMeta = isAttachMode
     ? cvDocument
       ? 'Hệ thống sẽ kiểm tra tài liệu đính kèm là CV hay job trước khi phân tích.'
-      : 'Đính kèm CV, dán JD vào ô chat rồi gửi để phân tích.'
+      : 'Đính kèm CV để mở vào workspace, hoặc kèm JD đủ dài để chấm điểm ngay.'
     : 'Enter để gửi. Shift + Enter để xuống dòng.';
   const attachButtonTitle = cvDocument
     ? 'Đính kèm tài liệu'
@@ -1597,6 +1757,19 @@ export default function WorkspacePage() {
                   disabled={savingEdits || !hasUnsavedEdits}
                 >
                   {savingEdits ? 'Đang lưu...' : 'Lưu thành version mới'}
+                </button>
+              )}
+              {cvDocument && isRawImportedDraft && (
+                <button
+                  type="button"
+                  className="btn-ghost doc-action-btn"
+                  onClick={handleNormalizeImport}
+                  disabled={normalizingImport || hasUnsavedEdits}
+                  title={hasUnsavedEdits
+                    ? 'Lưu các chỉnh sửa hiện tại trước khi chạy AI sắp xếp'
+                    : 'AI sẽ tái cấu trúc bố cục mà KHÔNG thêm/bớt/sửa nội dung gốc'}
+                >
+                  {normalizingImport ? 'AI đang sắp xếp...' : 'AI sắp xếp lại'}
                 </button>
               )}
               {cvDocument && (

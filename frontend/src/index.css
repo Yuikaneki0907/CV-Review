@@ -6128,7 +6128,7 @@ body {
 .cv-document h1,
 .cv-document h2,
 .cv-document h3 {
-  color: #084298;
+  color: #111827;
   margin-top: 1.5rem;
   margin-bottom: 0.75rem;
   line-height: 1.3;
@@ -6278,8 +6278,7 @@ body {
 .cv-document h2 {
   font-size: 16px;
   font-weight: 700;
-  color: #2563eb;
-  /* Professional Blue */
+  color: #111827;
   text-transform: uppercase;
   border-bottom: 2px solid #e5e7eb;
   padding-bottom: 0.25rem;

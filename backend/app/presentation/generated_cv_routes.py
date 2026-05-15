@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from docx import Document
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -31,6 +31,7 @@ from app.application.use_cases.edit_generated_cv import EditGeneratedCVUseCase
 from app.application.use_cases.generate_cv import GenerateCVUseCase
 from app.application.use_cases.import_generated_cv import ImportGeneratedCVUseCase
 from app.application.use_cases.chat_cv import ChatCVUseCase
+from app.application.use_cases.normalize_generated_cv import NormalizeGeneratedCVUseCase
 from app.infrastructure.ai import ai_service_factory
 from app.infrastructure.database.session import get_db_session
 from app.infrastructure.database.repositories.generated_cv_repository import GeneratedCVRepository
@@ -1128,6 +1129,63 @@ async def update_generated_cv(
     session: AsyncSession = Depends(get_db_session),
 ):
     return await create_generated_cv_version(cv_id, req, user_id, session)
+
+
+@router.post("/{cv_id}/normalize", response_model=GeneratedCVResponse)
+async def normalize_imported_generated_cv(
+    cv_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Run the strict-rewrite normalize pass on an imported CV.
+
+    Only applicable to CVs created via the import pipeline
+    (``source_type == "uploaded_cv"``). On success the cleaned markdown
+    is saved as a new immutable version. The endpoint returns the same
+    entity unchanged when the LLM either fails or violates the no-
+    content-loss check (``warnings`` will indicate which).
+    """
+    cv_repo = GeneratedCVRepository(session)
+    ai_service = ai_service_factory()
+    use_case = NormalizeGeneratedCVUseCase(cv_repo, ai_service)
+
+    try:
+        result = await use_case.execute(user_id=user_id, cv_id=cv_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Không tìm thấy CV này")
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        await session.rollback()
+        logger.error("Failed to normalize imported CV: %s", str(exc), exc_info=True)
+        raise HTTPException(status_code=500, detail="Không thể chuẩn hoá CV. Vui lòng thử lại.")
+
+    if not result.changed:
+        # The use case left the row untouched — no session changes to commit,
+        # but we still want to surface the warning to the FE so it can show
+        # an appropriate message.
+        response = _to_generated_cv_response(result.cv)
+        return JSONResponse(
+            status_code=200,
+            content={
+                **response.model_dump(mode="json"),
+                "normalize_changed": False,
+                "normalize_warnings": result.warnings,
+            },
+        )
+
+    await session.commit()
+    response = _to_generated_cv_response(result.cv)
+    return JSONResponse(
+        status_code=200,
+        content={
+            **response.model_dump(mode="json"),
+            "normalize_changed": True,
+            "normalize_warnings": result.warnings,
+        },
+    )
 
 @router.delete("/{cv_id}", status_code=204)
 async def delete_generated_cv(
