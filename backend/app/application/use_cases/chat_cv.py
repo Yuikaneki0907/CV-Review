@@ -312,13 +312,18 @@ class ChatCVUseCase:
         messages: List[Dict[str, str]],
         current_cv: Optional[GeneratedCV],
         output_format: str,
-    ) -> str:
+    ) -> tuple[str, Optional[str]]:
         """Run the analyze-and-revise quality gate when a JD is available.
 
-        Returns the (possibly-improved) CV markdown. Skips silently when no
-        JD signal is present in the conversation — and never raises: if the
-        gate itself errors out we keep the original CV so the user still
-        gets a saved draft.
+        Returns ``(content, resolved_jd_text)``. ``resolved_jd_text`` is the
+        full JD body the gate actually scored against (or ``None`` when the
+        gate was skipped). Caller uses it to persist a real ``target_jd_text``
+        on the saved CV instead of the legacy "Được cung cấp qua chat"
+        sentinel — so a later re-analyze runs on the SAME JD as the gate did.
+
+        Skips silently when no JD signal is present in the conversation —
+        and never raises: if the gate itself errors out we keep the original
+        CV so the user still gets a saved draft.
         """
         jd_text = self._extract_target_jd_from_messages(messages)
         if not jd_text and current_cv:
@@ -331,7 +336,7 @@ class ChatCVUseCase:
 
         if not jd_text or len(jd_text) < MIN_JD_CHARS_FOR_GATE:
             logger.info("Quality gate skipped: no JD in chat context")
-            return cv_content
+            return cv_content, None
 
         try:
             result = await ensure_quality(
@@ -342,7 +347,7 @@ class ChatCVUseCase:
             )
         except Exception as exc:
             logger.warning("Quality gate errored, keeping original CV: %s", exc, exc_info=True)
-            return cv_content
+            return cv_content, jd_text
 
         logger.info(
             "Quality gate: passed=%s initial=%.1f final=%.1f revisions=%d warnings=%s",
@@ -352,7 +357,7 @@ class ChatCVUseCase:
             result.revisions_used,
             result.warnings,
         )
-        return result.content
+        return result.content, jd_text
 
     async def _build_generated_cv(
         self,
@@ -364,6 +369,7 @@ class ChatCVUseCase:
         cv_content: str,
         output_format: str,
         current_cv: Optional[GeneratedCV] = None,
+        resolved_jd_text: Optional[str] = None,
     ) -> GeneratedCV | dict:
         if not self._is_valid_generated_cv_content(cv_content):
             logger.warning(
@@ -386,14 +392,28 @@ class ChatCVUseCase:
             base_profile = dict(current_cv.base_profile_data or {})
             base_profile["generation_mode"] = generated_payload["generation_mode"]
             base_profile["candidate_facts"] = generated_payload["candidate_facts"]
+            # Prefer the JD the gate actually scored against; fall back to
+            # whatever the parent version had so we never lose JD signal.
+            if resolved_jd_text and len(resolved_jd_text.strip()) >= MIN_JD_CHARS_FOR_GATE:
+                target_jd_text = resolved_jd_text.strip()
+            else:
+                target_jd_text = current_cv.target_jd_text
             return {
-                "target_jd_text": current_cv.target_jd_text,
+                "target_jd_text": target_jd_text,
                 "base_profile_data": base_profile,
                 "generated_content": generated_payload,
                 "status": "completed",
             }
 
-        target_jd_text = self._extract_target_jd_from_messages(messages) or "Được cung cấp qua chat"
+        # New conversation: prefer the JD resolved by the quality gate
+        # (full body) over the marker-based extractor; fall back to sentinel.
+        if resolved_jd_text and len(resolved_jd_text.strip()) >= MIN_JD_CHARS_FOR_GATE:
+            target_jd_text = resolved_jd_text.strip()
+        else:
+            target_jd_text = (
+                self._extract_target_jd_from_messages(messages)
+                or "Được cung cấp qua chat"
+            )
         return GeneratedCV(
             user_id=user_id,
             conversation_id=conversation_id,
@@ -515,7 +535,7 @@ class ChatCVUseCase:
                 )
                 return SAFE_INVALID_CV_MESSAGE, None, active_conversation_id
 
-            cv_content = await self._apply_quality_gate(
+            cv_content, resolved_jd_text = await self._apply_quality_gate(
                 cv_content=cv_content,
                 messages=messages,
                 current_cv=current_cv,
@@ -530,6 +550,7 @@ class ChatCVUseCase:
                 cv_content=cv_content,
                 output_format=output_format,
                 current_cv=current_cv,
+                resolved_jd_text=resolved_jd_text,
             )
             if current_cv:
                 cv_entity = await self.repo.create_versioned(
@@ -631,7 +652,7 @@ class ChatCVUseCase:
         async def save_cv_entity(cv_raw_text: str, reply_text: str) -> tuple[UUID, str]:
             cv_content = self._clean_cv_markdown(cv_raw_text)
 
-            cv_content = await self._apply_quality_gate(
+            cv_content, resolved_jd_text = await self._apply_quality_gate(
                 cv_content=cv_content,
                 messages=messages,
                 current_cv=current_cv,
@@ -650,6 +671,7 @@ class ChatCVUseCase:
                 cv_content=cv_content,
                 output_format=output_format,
                 current_cv=current_cv,
+                resolved_jd_text=resolved_jd_text,
             )
             if current_cv:
                 cv_entity = await self.repo.create_versioned(
