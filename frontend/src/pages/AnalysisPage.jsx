@@ -2,24 +2,55 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { API_BASE, getAnalysis } from '../api';
 
+// Mirrors backend/app/application/use_cases/analyze_cv.py:STEPS
 const PIPELINE_STEPS = [
-  { key: 'extract', label: 'Trích xuất thông tin CV' },
-  { key: 'score', label: 'Matching & Scoring' },
-  { key: 'rewrite', label: 'Viết lại CV' },
-  { key: 'truthcheck', label: 'Kiểm tra hallucination' },
-  { key: 'insights', label: 'Tạo gợi ý (AI Insights)' },
-  { key: 'diff', label: 'Tạo visual diff' },
+  { key: 'extract', label: 'Trích xuất thông tin CV & JD' },
+  { key: 'score', label: 'Chấm điểm 5 chiều' },
+  { key: 'done', label: 'Hoàn tất' },
 ];
+
+// Canonical dimension order — matches DIMENSION_WEIGHTS in
+// backend/app/domain/schemas/analysis_schema.py
+const DIMENSIONS = [
+  { key: 'relevance',           label: 'Phù hợp với JD',       weight: 30 },
+  { key: 'keyword_coverage',    label: 'Phủ từ khoá',          weight: 25 },
+  { key: 'achievement_quality', label: 'Chất lượng thành tích', weight: 20 },
+  { key: 'structure',           label: 'Cấu trúc CV',           weight: 15 },
+  { key: 'summary_alignment',   label: 'Summary bám JD',        weight: 10 },
+];
+
+const VERDICT_LABEL = {
+  PASS: 'Đạt yêu cầu',
+  BORDERLINE: 'Cận biên',
+  FAIL: 'Chưa đạt',
+};
+
+const SHORT_CIRCUIT_LABEL = {
+  insufficient_jd: 'JD không đủ thông tin để chấm điểm.',
+  template_only_cv: 'CV vẫn còn quá nhiều placeholder, chưa có dữ kiện thật.',
+};
+
+const verdictFromScore = (score) => {
+  if (score == null) return null;
+  if (score >= 70) return 'PASS';
+  if (score >= 50) return 'BORDERLINE';
+  return 'FAIL';
+};
+
+const colorBucket = (value) => {
+  if (value == null) return 'gray';
+  if (value >= 80) return 'green';
+  if (value >= 50) return 'yellow';
+  return 'red';
+};
 
 export default function AnalysisPage() {
   const { id } = useParams();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('overview');
   const [stepStates, setStepStates] = useState({});
   const eventSourceRef = useRef(null);
 
-  // Fetch full analysis data
   const fetchData = useCallback(async () => {
     try {
       const res = await getAnalysis(id);
@@ -33,25 +64,17 @@ export default function AnalysisPage() {
     }
   }, [id]);
 
-  // Handle step event from SSE
   const handleStepEvent = useCallback((event) => {
     const { step, status, duration_ms } = event;
-
     if (step === 'pipeline') {
       if (status === 'done' || status === 'completed' || status === 'failed') {
-        // Pipeline finished, fetch final data
         setTimeout(() => fetchData(), 500);
       }
       return;
     }
-
-    setStepStates(prev => ({
-      ...prev,
-      [step]: { status, duration_ms },
-    }));
+    setStepStates((prev) => ({ ...prev, [step]: { status, duration_ms } }));
   }, [fetchData]);
 
-  // Fallback: poll every 3s if SSE fails
   const fallbackPolling = useCallback(() => {
     const poll = async () => {
       const result = await fetchData();
@@ -62,13 +85,11 @@ export default function AnalysisPage() {
     poll();
   }, [fetchData]);
 
-  // Connect to SSE for real-time streaming
   const connectSSE = useCallback(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
     eventSourceRef.current?.abort?.();
 
-    // EventSource doesn't support custom headers, so we use fetch-based SSE
     const url = `${API_BASE}/analysis/${id}/stream`;
     const controller = new AbortController();
     eventSourceRef.current = controller;
@@ -77,19 +98,13 @@ export default function AnalysisPage() {
       try {
         const response = await fetch(url, {
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'text/event-stream',
+            Authorization: `Bearer ${token}`,
+            Accept: 'text/event-stream',
           },
           signal: controller.signal,
         });
 
-        if (!response.ok) {
-          console.warn('SSE connection failed, falling back to polling');
-          fallbackPolling();
-          return;
-        }
-
-        if (!response.body) {
+        if (!response.ok || !response.body) {
           fallbackPolling();
           return;
         }
@@ -97,22 +112,18 @@ export default function AnalysisPage() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
-
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               try {
-                const event = JSON.parse(line.slice(6));
-                handleStepEvent(event);
+                handleStepEvent(JSON.parse(line.slice(6)));
               } catch {
-                // ignore parse errors
+                /* ignore parse errors */
               }
             }
           }
@@ -139,36 +150,10 @@ export default function AnalysisPage() {
       }
     };
     init();
-
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.abort();
-      }
+      eventSourceRef.current?.abort?.();
     };
   }, [connectSSE, fetchData, id]);
-
-  const hasJdEvaluation = data?.jd_evaluation && Object.keys(data.jd_evaluation).length > 0;
-  const hasSalaryData = data?.salary_negotiation && Object.keys(data.salary_negotiation).length > 0;
-  const jdSummary = data?.jd_evaluation?.summary || data?.jd_evaluation?.core_requirements;
-  const jdDifficulty = [
-    data?.jd_evaluation?.level,
-    data?.jd_evaluation?.difficulty,
-    data?.jd_evaluation?.years_of_experience,
-  ].filter(Boolean).join(' · ') || data?.jd_evaluation?.difficulty_level;
-  const jdAdvice = data?.jd_evaluation?.strategic_advice
-    || (data?.jd_evaluation?.missing_info?.length
-      ? `Thiếu thông tin: ${data.jd_evaluation.missing_info.join(', ')}`
-      : '');
-  const salaryRange = data?.salary_negotiation?.expected_salary_range || data?.salary_negotiation?.estimated_range;
-  const salaryContext = data?.salary_negotiation?.market_context || data?.salary_negotiation?.negotiation_strategy;
-  const salaryTips = data?.salary_negotiation?.negotiation_tips
-    || [
-      ...(data?.salary_negotiation?.cv_strengths || []).map((item) => `Điểm mạnh: ${item}`),
-      ...(data?.salary_negotiation?.cv_weaknesses || []).map((item) => `Cần chuẩn bị: ${item}`),
-    ];
-  const generatedMeta = data?.analysis_meta?.source === 'generated_cv' ? data.analysis_meta : null;
-  const sectionDiffs = Array.isArray(data?.section_diffs) ? data.section_diffs : [];
-  const diffStats = getSectionDiffStats(sectionDiffs);
 
   if (loading) {
     return (
@@ -185,13 +170,8 @@ export default function AnalysisPage() {
     return (
       <div className="analysis-page">
         <div className="error-state">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="var(--outline)">
-            <path d="M11 15h2v2h-2v-2zm0-8h2v6h-2V7zm1-5C6.47 2 2 6.5 2 12a10 10 0 0020 0c0-5.5-4.47-10-10-10zm0 18a8 8 0 110-16 8 8 0 010 16z" />
-          </svg>
-          <p>Không tìm thấy kết quả phân tích</p>
-          <Link to="/" className="btn-secondary">
-            ← Quay lại
-          </Link>
+          <h3>Không tìm thấy kết quả phân tích</h3>
+          <Link to="/" className="btn-secondary">← Quay lại</Link>
         </div>
       </div>
     );
@@ -203,18 +183,18 @@ export default function AnalysisPage() {
         <div className="loading-state">
           <div className="pulse-ring" />
           <h3>Đang phân tích CV...</h3>
-          <p style={{ color: 'var(--on-surface-variant)' }}>Quá trình phân tích mất khoảng 30-60 giây</p>
+          <p style={{ color: 'var(--on-surface-variant)' }}>
+            Quá trình phân tích thường mất 15-40 giây.
+          </p>
           <div className="progress-steps">
             {PIPELINE_STEPS.map((step) => {
               const state = stepStates[step.key];
-              const isDone = state?.status === 'done';
-              const isRunning = state?.status === 'running';
               return (
                 <Step
                   key={step.key}
                   label={step.label}
-                  done={isDone}
-                  running={isRunning}
+                  done={state?.status === 'done'}
+                  running={state?.status === 'running'}
                   durationMs={state?.duration_ms}
                 />
               );
@@ -229,185 +209,125 @@ export default function AnalysisPage() {
     return (
       <div className="analysis-page">
         <div className="error-state">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="var(--error)">
-            <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
-          </svg>
           <h3>Phân tích thất bại</h3>
-          <p style={{ color: 'var(--on-surface-variant)' }}>Vui lòng thử lại</p>
-          <Link to="/" className="btn-primary" style={{ width: 'auto', padding: '0.6rem 1.5rem' }}>Thử lại</Link>
+          <p style={{ color: 'var(--on-surface-variant)' }}>Vui lòng thử lại.</p>
+          <Link to="/" className="btn-primary" style={{ width: 'auto', padding: '0.6rem 1.5rem' }}>
+            Thử lại
+          </Link>
         </div>
       </div>
     );
   }
 
+  // ─── New-schema panels ─────────────────────────────────────────
+  const breakdown = data?.score_breakdown || {};
+  const verdict = breakdown.verdict || verdictFromScore(data?.score?.overall);
+  const dimensionScores = breakdown.dimension_scores || {};
+  const gapAnalysis = breakdown.gap_analysis || { critical_missing: [], improvable: [] };
+  const keywordReport = breakdown.keyword_report || { found: [], missing: [], density_ok: true };
+  const suggestions = Array.isArray(breakdown.suggestions) ? breakdown.suggestions : [];
+  const shortCircuit = data?.analysis_meta?.short_circuit || null;
+  const hasNewSchema = Boolean(breakdown.dimension_scores);
+
   return (
     <div className="analysis-page">
       <div className="analysis-header">
-        <Link to="/history" className="back-link">
-          ← Danh sách
-        </Link>
+        <Link to="/history" className="back-link">← Danh sách</Link>
         <h2>{data.cv_filename}</h2>
         <span className={`status-badge status-${data.status}`}>{data.status}</span>
       </div>
 
-      {/* Score Cards */}
+      {/* Headline: overall score + verdict */}
       {data.score && (
-        <div className="score-section">
+        <div className="analysis-headline">
           <ScoreCard label="Tổng điểm" value={data.score.overall} large />
-          <ScoreCard label="Kỹ năng" value={data.score.skills_score} />
-          <ScoreCard label="Kinh nghiệm" value={data.score.experience_score} />
-          <ScoreCard label="Công cụ" value={data.score.tools_score} />
+          {verdict && <VerdictBadge verdict={verdict} />}
         </div>
       )}
 
-      {generatedMeta && (
-        <GeneratedCvAnalysisNote meta={generatedMeta} scoreBreakdown={data.score_breakdown} />
+      {shortCircuit && (
+        <div className="analysis-shortcircuit-note">
+          <strong>Phân tích dừng sớm:</strong>{' '}
+          {SHORT_CIRCUIT_LABEL[shortCircuit] || `Lý do: ${shortCircuit}`}
+        </div>
       )}
 
-      {/* Tabs */}
-      <div className="tab-bar" style={{ overflowX: 'auto', display: 'flex', whiteSpace: 'nowrap' }}>
-        <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>
-          Tổng quan
-        </button>
-        <button className={tab === 'jd_eval' ? 'active' : ''} onClick={() => setTab('jd_eval')}>
-          Phân tích JD
-        </button>
-        <button className={tab === 'salary' ? 'active' : ''} onClick={() => setTab('salary')}>
-          Đề xuất Lương
-        </button>
-        <button className={tab === 'diff' ? 'active' : ''} onClick={() => setTab('diff')}>
-          So sánh CV
-        </button>
-        <button className={tab === 'warnings' ? 'active' : ''} onClick={() => setTab('warnings')}>
-          Cảnh báo ({data.hallucination_warnings?.length || 0})
-        </button>
-      </div>
-
-      {/* Tab Content */}
-      <div className="tab-content">
-        {tab === 'overview' && (
-          <div className="overview-tab">
-            <div className="skills-grid">
-              <SkillList title="Kỹ năng phù hợp" icon="✓" items={data.matched_skills} type="matched" />
-              <SkillList title="Kỹ năng thiếu" icon="✕" items={data.missing_skills} type="missing" />
-              <SkillList title="Kỹ năng bổ sung" icon="+" items={data.extra_skills} type="extra" />
-            </div>
+      {/* 5-dimension breakdown */}
+      {hasNewSchema && (
+        <section className="analysis-section">
+          <h3>Phân tích 5 chiều</h3>
+          <div className="dimension-grid">
+            {DIMENSIONS.map((dim) => {
+              const entry = dimensionScores[dim.key];
+              if (!entry) return null;
+              return (
+                <DimensionCard
+                  key={dim.key}
+                  label={dim.label}
+                  weight={dim.weight}
+                  score={entry.score}
+                  reason={entry.reason}
+                />
+              );
+            })}
           </div>
-        )}
+        </section>
+      )}
 
-        {tab === 'jd_eval' && (
-          <div className="jd-eval-tab fade-in">
-            <h3>Phân tích JD</h3>
-            {hasJdEvaluation ? (
-              <div className="card-grid">
-                <div className="card">
-                  <h4>Yêu cầu chính</h4>
-                  <p>{jdSummary || 'Chưa có tóm tắt JD'}</p>
-                </div>
-                <div className="card">
-                  <h4>Mức độ phù hợp</h4>
-                  <p>{jdDifficulty || 'Chưa xác định'}</p>
-                </div>
-                <div className="card">
-                  <h4>Nhận xét</h4>
-                  <p>{jdAdvice || 'Chưa có nhận xét bổ sung'}</p>
-                </div>
-              </div>
-            ) : (
-              <p className="empty">Chưa có dữ liệu phân tích JD</p>
-            )}
-          </div>
-        )}
+      {/* Keyword report */}
+      {hasNewSchema && (
+        <section className="analysis-section">
+          <h3>Phủ từ khoá JD</h3>
+          <KeywordReportPanel report={keywordReport} />
+        </section>
+      )}
 
-        {tab === 'salary' && (
-          <div className="salary-tab fade-in">
-            <h3>Đề xuất Deal Lương</h3>
-            {hasSalaryData ? (
-              <div className="salary-content">
-                <div className="salary-range card primary-card">
-                  <h4>Khoảng lương dự kiến</h4>
-                  <div className="range-value">{salaryRange || 'Chưa có dữ liệu'}</div>
-                  <p>{salaryContext || 'Chưa có phân tích chiến lược đàm phán'}</p>
-                </div>
-                <div className="card">
-                  <h4>Chiến lược đàm phán</h4>
-                  <ul>
-                    {salaryTips?.map((tip, i) => (
-                      <li key={i}>{tip}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ) : (
-              <p className="empty">Chưa có dữ liệu đề xuất lương</p>
-            )}
-          </div>
-        )}
+      {/* Gap analysis — what to fix */}
+      {hasNewSchema && (
+        <section className="analysis-section">
+          <h3>Cần cải thiện</h3>
+          <GapAnalysisPanel gap={gapAnalysis} />
+        </section>
+      )}
 
-        {tab === 'diff' && (
-          <div className="diff-tab">
-            <h3>CV gốc vs CV đề xuất</h3>
-            {sectionDiffs.length > 0 ? (
-              <div className="section-diff-shell">
-                <div className="section-diff-toolbar">
-                  <span>Đã sửa {diffStats.modified} mục · Thêm {diffStats.added} · Xóa {diffStats.removed}</span>
-                  <div className="section-diff-legend">
-                    <span><i className="legend-box removed" /> Bản gốc</span>
-                    <span><i className="legend-box added" /> Bản đề xuất</span>
-                  </div>
-                </div>
-                <div className="section-diff-list">
-                  {sectionDiffs.map((section, index) => (
-                    <SectionDiffCard key={`${section.key}-${index}`} section={section} />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p className="empty">Không có thay đổi đáng kể để hiển thị</p>
-            )}
-          </div>
-        )}
+      {/* Concrete rewrite suggestions */}
+      {hasNewSchema && suggestions.length > 0 && (
+        <section className="analysis-section">
+          <h3>Gợi ý chỉnh sửa cụ thể ({suggestions.length})</h3>
+          <SuggestionsPanel suggestions={suggestions} />
+        </section>
+      )}
 
-        {tab === 'warnings' && (
-          <div className="warnings-tab">
-            {data.hallucination_warnings?.length > 0 ? (
-              data.hallucination_warnings.map((w, i) => (
-                <div key={i} className={`warning-card level-${w.level}`}>
-                  <div className="warning-header">
-                    <span className="warning-level">{w.level.toUpperCase()}</span>
-                    <span className="warning-type">{w.issue_type}</span>
-                  </div>
-                  <p className="warning-section">Phần: {w.section}</p>
-                  <div className="warning-comparison">
-                    <div>
-                      <strong>Bản gốc</strong>
-                      <p>{w.original_text}</p>
-                    </div>
-                    <div>
-                      <strong>Bản viết lại</strong>
-                      <p>{w.rewritten_text}</p>
-                    </div>
-                  </div>
-                  <p className="warning-explanation">{w.explanation}</p>
-                </div>
-              ))
-            ) : (
-              <div className="empty-warnings">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="var(--secondary)">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-                </svg>
-                <p>Không phát hiện hallucination</p>
-              </div>
-            )}
+      {/* Defensive fallback for old analyses without new schema */}
+      {!hasNewSchema && (data.matched_skills || data.missing_skills) && (
+        <section className="analysis-section">
+          <h3>Kỹ năng (legacy)</h3>
+          <div className="skills-grid">
+            <SkillList title="Kỹ năng phù hợp" icon="✓" items={data.matched_skills} type="matched" />
+            <SkillList title="Kỹ năng thiếu" icon="✕" items={data.missing_skills} type="missing" />
           </div>
-        )}
-      </div>
+        </section>
+      )}
     </div>
   );
 }
 
+// ────────────────────────────────────────────────────────────────
+// Sub-components
+// ────────────────────────────────────────────────────────────────
+
+function VerdictBadge({ verdict }) {
+  const cls = `verdict-badge verdict-${verdict.toLowerCase()}`;
+  return (
+    <span className={cls}>
+      <strong>{verdict}</strong>
+      <small>{VERDICT_LABEL[verdict] || ''}</small>
+    </span>
+  );
+}
+
 function ScoreCard({ label, value, large }) {
-  const color = value >= 80 ? 'green' : value >= 50 ? 'yellow' : 'red';
+  const color = colorBucket(value);
   return (
     <div className={`score-card ${large ? 'large' : ''} score-${color}`}>
       <div className="score-value">{value ?? '—'}</div>
@@ -416,51 +336,105 @@ function ScoreCard({ label, value, large }) {
   );
 }
 
-function getSectionDiffStats(sections = []) {
-  const added = sections.filter((section) => section.status === 'added').length;
-  const removed = sections.filter((section) => section.status === 'removed').length;
-  const modified = sections.filter((section) => section.status === 'modified').length;
-  return {
-    added,
-    removed,
-    modified,
-  };
+function DimensionCard({ label, weight, score, reason }) {
+  const color = colorBucket(score);
+  return (
+    <div className={`dimension-card score-${color}`}>
+      <div className="dimension-card-head">
+        <span className="dimension-card-label">{label}</span>
+        <span className="dimension-card-weight">{weight}%</span>
+      </div>
+      <div className="dimension-card-score">{Math.round(score ?? 0)}</div>
+      {reason && <p className="dimension-card-reason">{reason}</p>}
+    </div>
+  );
 }
 
-function SectionDiffCard({ section }) {
-  const statusLabel = {
-    added: 'Thêm mới',
-    removed: 'Đã xoá',
-    modified: 'Đã sửa',
-  }[section.status] || 'Đã sửa';
-  const removedText = section.changes?.filter((change) => change.type === 'removed').map((change) => change.text).join('\n\n');
-  const addedText = section.changes?.filter((change) => change.type === 'added').map((change) => change.text).join('\n\n');
-
+function KeywordReportPanel({ report }) {
+  const found = Array.isArray(report?.found) ? report.found : [];
+  const missing = Array.isArray(report?.missing) ? report.missing : [];
+  const densityOk = Boolean(report?.density_ok);
   return (
-    <article className={`section-diff-card status-${section.status || 'modified'}`}>
-      <header className="section-diff-card-header">
-        <div>
-          <span className="section-diff-kicker">Section</span>
-          <h4>{section.title || 'Khác'}</h4>
-        </div>
-        <span className="section-diff-status">{statusLabel}</span>
-      </header>
-      <p className="section-diff-reason">{section.reason || 'Nội dung được điều chỉnh để phù hợp hơn.'}</p>
-      <div className="section-diff-comparison">
-        {removedText && (
-          <div className="section-diff-panel removed">
-            <strong>Bản gốc</strong>
-            <pre>{removedText}</pre>
-          </div>
-        )}
-        {addedText && (
-          <div className="section-diff-panel added">
-            <strong>Bản đề xuất</strong>
-            <pre>{addedText}</pre>
-          </div>
-        )}
+    <div className="keyword-report">
+      <div className="keyword-density">
+        <span className={`density-pill ${densityOk ? 'density-ok' : 'density-low'}`}>
+          {densityOk ? '✓ Mật độ từ khoá đạt ngưỡng ATS' : '⚠ Mật độ từ khoá dưới ngưỡng ATS'}
+        </span>
       </div>
-    </article>
+      <div className="keyword-cols">
+        <div className="keyword-col">
+          <h4>Có trong CV ({found.length})</h4>
+          <div className="keyword-tags">
+            {found.length > 0
+              ? found.map((kw, i) => <span key={i} className="keyword-tag tag-matched">{kw}</span>)
+              : <span className="empty">Chưa có từ khoá nào trùng JD.</span>}
+          </div>
+        </div>
+        <div className="keyword-col">
+          <h4>Thiếu so với JD ({missing.length})</h4>
+          <div className="keyword-tags">
+            {missing.length > 0
+              ? missing.map((kw, i) => <span key={i} className="keyword-tag tag-missing">{kw}</span>)
+              : <span className="empty">Đã phủ kín từ khoá JD.</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GapAnalysisPanel({ gap }) {
+  const critical = Array.isArray(gap?.critical_missing) ? gap.critical_missing : [];
+  const improvable = Array.isArray(gap?.improvable) ? gap.improvable : [];
+  if (critical.length === 0 && improvable.length === 0) {
+    return <p className="empty">Không phát hiện điểm yếu lớn nào.</p>;
+  }
+  return (
+    <div className="gap-analysis">
+      {critical.length > 0 && (
+        <div className="gap-bucket gap-critical">
+          <h4>Bắt buộc sửa ({critical.length})</h4>
+          <ul>
+            {critical.map((item, i) => <li key={i}>{item}</li>)}
+          </ul>
+        </div>
+      )}
+      {improvable.length > 0 && (
+        <div className="gap-bucket gap-improvable">
+          <h4>Có thể cải thiện ({improvable.length})</h4>
+          <ul>
+            {improvable.map((item, i) => <li key={i}>{item}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SuggestionsPanel({ suggestions }) {
+  return (
+    <div className="suggestions-list">
+      {suggestions.map((s, i) => (
+        <article key={i} className="suggestion-card">
+          <header>
+            <span className="suggestion-section">{s.section}</span>
+            <span className="suggestion-issue">{s.issue}</span>
+          </header>
+          {s.current && (
+            <div className="suggestion-row">
+              <strong>Hiện tại:</strong>
+              <p className="suggestion-current">{s.current}</p>
+            </div>
+          )}
+          {s.suggested && (
+            <div className="suggestion-row">
+              <strong>Đề xuất:</strong>
+              <p className="suggestion-suggested">{s.suggested}</p>
+            </div>
+          )}
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -476,14 +450,7 @@ function SkillList({ title, icon, items, type }) {
       </h4>
       <div className="skill-tags">
         {items?.map((s, i) => (
-          <span
-            key={i}
-            className={`skill-tag tag-${s.category === 'needs_user_info' ? 'needs-info' : type}`}
-            title={s.reason || ''}
-          >
-            {s.name}
-            {s.category === 'needs_user_info' ? <small>Cần bổ sung dữ liệu</small> : s.category && <small>{s.category}</small>}
-          </span>
+          <span key={i} className={`skill-tag tag-${type}`}>{s.name}</span>
         ))}
         {(!items || items.length === 0) && <span className="empty">Không có</span>}
       </div>
@@ -491,34 +458,9 @@ function SkillList({ title, icon, items, type }) {
   );
 }
 
-function GeneratedCvAnalysisNote({ meta, scoreBreakdown }) {
-  const needs = meta?.needs_user_info || scoreBreakdown?.needs_user_info || [];
-  return (
-    <div className={`generated-analysis-note ${meta?.pass_ready ? 'ready' : 'needs-info'}`}>
-      <div>
-        <h3>{meta?.pass_ready ? 'CV generated đã sẵn sàng phân tích' : 'CV generated cần bổ sung dữ liệu thật'}</h3>
-        <p>{meta?.explanation || scoreBreakdown?.note || 'Hệ thống chỉ tính các kỹ năng có bằng chứng trong CV.'}</p>
-      </div>
-      <div className="generated-analysis-meta">
-        <span>Chế độ: {meta?.generation_mode === 'personalized' ? 'Cá nhân hóa' : 'Template/nháp'}</span>
-        <span>Placeholder: {meta?.placeholder_count ?? 0}</span>
-        <span>Kỹ năng cần chứng minh: {needs.length}</span>
-      </div>
-      {needs.length > 0 && (
-        <div className="generated-analysis-skills">
-          {needs.slice(0, 8).map((skill, index) => (
-            <span key={`${skill}-${index}`}>{skill}</span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function Step({ label, done, running, durationMs }) {
-  let iconSvg;
   let className = 'step';
-
+  let iconSvg;
   if (done) {
     className += ' done';
     iconSvg = (
@@ -540,14 +482,11 @@ function Step({ label, done, running, durationMs }) {
       </svg>
     );
   }
-
   return (
     <div className={className}>
       <span className="step-icon">{iconSvg}</span>
       <span>{label}</span>
-      {done && durationMs && (
-        <span className="step-duration">{(durationMs / 1000).toFixed(1)}s</span>
-      )}
+      {done && durationMs && <span className="step-duration">{(durationMs / 1000).toFixed(1)}s</span>}
     </div>
   );
 }

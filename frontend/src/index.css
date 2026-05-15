@@ -6544,3 +6544,408 @@ body {
 .tpl-m-bar.tech {
   background: linear-gradient(90deg, #0d6efd, #198754);
 }
+
+
+/* ============================================================
+ * Analysis page — 5-dimension schema (Phase 1 / verdict / gaps)
+ * ============================================================ */
+
+.analysis-headline {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.analysis-headline .score-card.large {
+  flex: 0 1 240px;
+}
+
+.verdict-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.65rem 1.1rem;
+  border-radius: var(--radius);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
+  box-shadow: var(--shadow-sm);
+}
+
+.verdict-badge strong {
+  font-size: 1.1rem;
+}
+
+.verdict-badge small {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  margin-top: 0.15rem;
+}
+
+.verdict-pass {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: var(--green);
+}
+
+.verdict-borderline {
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.4);
+  color: var(--yellow);
+}
+
+.verdict-fail {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--red);
+}
+
+.analysis-shortcircuit-note {
+  background: rgba(234, 179, 8, 0.12);
+  border-left: 4px solid var(--yellow);
+  padding: 0.85rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+  color: var(--on-surface);
+  font-size: 0.92rem;
+}
+
+.analysis-section {
+  margin: 2rem 0;
+}
+
+.analysis-section h3 {
+  font-family: var(--font-headline);
+  font-size: 1.1rem;
+  margin: 0 0 0.85rem 0;
+  color: var(--on-surface);
+}
+
+/* Dimension grid */
+.dimension-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.dimension-card {
+  background: var(--surface-container-lowest);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--outline-variant);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.dimension-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  color: var(--on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dimension-card-label {
+  font-weight: 700;
+  color: var(--on-surface);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.92rem;
+}
+
+.dimension-card-weight {
+  font-size: 0.7rem;
+  color: var(--outline);
+}
+
+.dimension-card-score {
+  font-family: var(--font-headline);
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.dimension-card.score-green .dimension-card-score {
+  color: var(--green);
+}
+
+.dimension-card.score-yellow .dimension-card-score {
+  color: var(--yellow);
+}
+
+.dimension-card.score-red .dimension-card-score {
+  color: var(--red);
+}
+
+.dimension-card.score-gray .dimension-card-score {
+  color: var(--outline);
+}
+
+.dimension-card-reason {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--on-surface-variant);
+  line-height: 1.45;
+}
+
+/* Keyword report */
+.keyword-report {
+  background: var(--surface-container-lowest);
+  border-radius: var(--radius);
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--outline-variant);
+}
+
+.keyword-density {
+  margin-bottom: 0.9rem;
+}
+
+.density-pill {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.density-pill.density-ok {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--green);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.density-pill.density-low {
+  background: rgba(234, 179, 8, 0.12);
+  color: var(--yellow);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
+.keyword-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem;
+}
+
+@media (max-width: 600px) {
+  .keyword-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.keyword-col h4 {
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem 0;
+  color: var(--on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.keyword-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.keyword-tag {
+  display: inline-block;
+  padding: 0.22rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  background: var(--surface-container-low);
+  border: 1px solid var(--outline-variant);
+  color: var(--on-surface);
+}
+
+.keyword-tag.tag-matched {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: var(--green);
+}
+
+.keyword-tag.tag-missing {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--red);
+}
+
+/* Gap analysis */
+.gap-analysis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.1rem;
+}
+
+@media (max-width: 720px) {
+  .gap-analysis {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gap-bucket {
+  background: var(--surface-container-lowest);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--outline-variant);
+}
+
+.gap-bucket h4 {
+  margin: 0 0 0.6rem 0;
+  font-size: 0.92rem;
+}
+
+.gap-bucket ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--on-surface);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.gap-bucket.gap-critical {
+  border-left: 4px solid var(--red);
+}
+
+.gap-bucket.gap-critical h4 {
+  color: var(--red);
+}
+
+.gap-bucket.gap-improvable {
+  border-left: 4px solid var(--yellow);
+}
+
+.gap-bucket.gap-improvable h4 {
+  color: var(--yellow);
+}
+
+/* Suggestions */
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.suggestion-card {
+  background: var(--surface-container-lowest);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--outline-variant);
+  box-shadow: var(--shadow-sm);
+}
+
+.suggestion-card header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.7rem;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.suggestion-section {
+  font-weight: 700;
+  color: var(--on-surface);
+  font-size: 0.92rem;
+}
+
+.suggestion-issue {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  letter-spacing: 0.05em;
+  background: var(--surface-container-low);
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--outline-variant);
+}
+
+.suggestion-row {
+  margin: 0.35rem 0;
+}
+
+.suggestion-row strong {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.2rem;
+}
+
+.suggestion-current {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.06);
+  border-left: 3px solid rgba(239, 68, 68, 0.45);
+  color: var(--on-surface);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.suggestion-suggested {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(34, 197, 94, 0.08);
+  border-left: 3px solid rgba(34, 197, 94, 0.5);
+  color: var(--on-surface);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* HistoryPage verdict pill */
+.history-card .verdict-pill {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: 0.4rem;
+}
+
+.history-card .verdict-pill.verdict-pass {
+  background: rgba(34, 197, 94, 0.14);
+  color: var(--green);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.history-card .verdict-pill.verdict-borderline {
+  background: rgba(234, 179, 8, 0.14);
+  color: var(--yellow);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
+.history-card .verdict-pill.verdict-fail {
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+/* Workspace analysis bubble — new schema panels (smaller variants) */
+.analysis-result-bubble .dimension-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.6rem;
+}
+
+.analysis-result-bubble .dimension-card {
+  padding: 0.7rem 0.8rem;
+}
+
+.analysis-result-bubble .dimension-card-score {
+  font-size: 1.4rem;
+}
+
+.analysis-result-bubble .keyword-cols {
+  grid-template-columns: 1fr;
+}

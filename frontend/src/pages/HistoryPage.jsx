@@ -197,9 +197,14 @@ export default function HistoryPage() {
               </div>
               <div className="history-card-right">
                 {a.overall_score != null && (
-                  <div className={`mini-score score-${a.overall_score >= 80 ? 'green' : a.overall_score >= 50 ? 'yellow' : 'red'}`}>
-                    {a.overall_score}
-                  </div>
+                  <>
+                    <span className={`verdict-pill verdict-${a.overall_score >= 70 ? 'pass' : a.overall_score >= 50 ? 'borderline' : 'fail'}`}>
+                      {a.overall_score >= 70 ? 'PASS' : a.overall_score >= 50 ? 'BORDERLINE' : 'FAIL'}
+                    </span>
+                    <div className={`mini-score score-${a.overall_score >= 80 ? 'green' : a.overall_score >= 50 ? 'yellow' : 'red'}`}>
+                      {a.overall_score}
+                    </div>
+                  </>
                 )}
                 <span className={`status-badge status-${a.status}`}>
                   {a.status === 'completed' ? '✓ ' : a.status === 'failed' ? '✕ ' : '◔ '}

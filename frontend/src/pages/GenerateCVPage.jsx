@@ -16,12 +16,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid';
 import { createAnalysisFromGeneratedCV, getAnalysis, listGeneratedCVs, streamChatAnalysis } from '../api';
-import {
-  getJdEvaluationAdvice,
-  getJdEvaluationSummary,
-  getSalaryAdvice,
-  getSalaryRange,
-} from '../utils/analysisInsights';
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
@@ -438,6 +432,150 @@ export default function GenerateCVPage() {
               </div>
             )}
 
+            {/* New 5-dimension schema panels — populated by either SSE
+                (`keyword_report` / `gap_analysis` / `suggestions` flat keys)
+                or the library polling flow (`score_breakdown` nested dict). */}
+            {(() => {
+              const sb = analysisResults?.score_breakdown || {};
+              const verdict = analysisResults?.scores?.verdict || sb.verdict;
+              const dimensionScores = analysisResults?.scores?.dimension_scores || sb.dimension_scores;
+              const keywordReport = analysisResults?.keyword_report || sb.keyword_report;
+              const gapAnalysis = analysisResults?.gap_analysis || sb.gap_analysis;
+              const suggestionsList = analysisResults?.suggestions || sb.suggestions;
+
+              return (
+                <>
+                  {(verdict || dimensionScores) && (
+                    <div className="analyze-results-section">
+                      <h3><ChartBarIcon className="analyze-heading-icon" /> Phân tích 5 chiều</h3>
+                      {verdict && (
+                        <div className="analysis-headline" style={{ marginBottom: '0.6rem' }}>
+                          <span className={`verdict-badge verdict-${String(verdict).toLowerCase()}`}>
+                            <strong>{verdict}</strong>
+                            <small>
+                              {verdict === 'PASS' ? 'Đạt yêu cầu'
+                                : verdict === 'BORDERLINE' ? 'Cận biên'
+                                : 'Chưa đạt'}
+                            </small>
+                          </span>
+                        </div>
+                      )}
+                      {dimensionScores && (
+                        <div className="dimension-grid">
+                          {[
+                            { k: 'relevance', label: 'Phù hợp với JD', w: 30 },
+                            { k: 'keyword_coverage', label: 'Phủ từ khoá', w: 25 },
+                            { k: 'achievement_quality', label: 'Chất lượng thành tích', w: 20 },
+                            { k: 'structure', label: 'Cấu trúc', w: 15 },
+                            { k: 'summary_alignment', label: 'Summary bám JD', w: 10 },
+                          ].map(({ k, label, w }) => {
+                            const dim = dimensionScores[k];
+                            if (!dim) return null;
+                            const color = dim.score >= 80 ? 'green' : dim.score >= 50 ? 'yellow' : 'red';
+                            return (
+                              <div key={k} className={`dimension-card score-${color}`}>
+                                <div className="dimension-card-head">
+                                  <span className="dimension-card-label">{label}</span>
+                                  <span className="dimension-card-weight">{w}%</span>
+                                </div>
+                                <div className="dimension-card-score">{Math.round(dim.score ?? 0)}</div>
+                                {dim.reason && <p className="dimension-card-reason">{dim.reason}</p>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {keywordReport && (Array.isArray(keywordReport.found) || Array.isArray(keywordReport.missing)) && (
+                    <div className="analyze-results-section">
+                      <h3><CheckCircleIcon className="analyze-heading-icon" /> Phủ từ khoá JD</h3>
+                      <div className="keyword-report">
+                        <div className="keyword-density">
+                          <span className={`density-pill ${keywordReport.density_ok ? 'density-ok' : 'density-low'}`}>
+                            {keywordReport.density_ok
+                              ? '✓ Mật độ từ khoá đạt ngưỡng ATS'
+                              : '⚠ Mật độ từ khoá dưới ngưỡng ATS'}
+                          </span>
+                        </div>
+                        <div className="keyword-cols">
+                          <div className="keyword-col">
+                            <h4>Có trong CV ({keywordReport.found?.length || 0})</h4>
+                            <div className="keyword-tags">
+                              {(keywordReport.found || []).map((kw, i) => (
+                                <span key={i} className="keyword-tag tag-matched">{kw}</span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="keyword-col">
+                            <h4>Thiếu so với JD ({keywordReport.missing?.length || 0})</h4>
+                            <div className="keyword-tags">
+                              {(keywordReport.missing || []).map((kw, i) => (
+                                <span key={i} className="keyword-tag tag-missing">{kw}</span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {gapAnalysis && ((gapAnalysis.critical_missing?.length > 0) || (gapAnalysis.improvable?.length > 0)) && (
+                    <div className="analyze-results-section">
+                      <h3><ExclamationCircleIcon className="analyze-heading-icon" /> Cần cải thiện</h3>
+                      <div className="gap-analysis">
+                        {gapAnalysis.critical_missing?.length > 0 && (
+                          <div className="gap-bucket gap-critical">
+                            <h4>Bắt buộc sửa ({gapAnalysis.critical_missing.length})</h4>
+                            <ul>
+                              {gapAnalysis.critical_missing.map((item, i) => <li key={i}>{item}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                        {gapAnalysis.improvable?.length > 0 && (
+                          <div className="gap-bucket gap-improvable">
+                            <h4>Có thể cải thiện ({gapAnalysis.improvable.length})</h4>
+                            <ul>
+                              {gapAnalysis.improvable.map((item, i) => <li key={i}>{item}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {Array.isArray(suggestionsList) && suggestionsList.length > 0 && (
+                    <div className="analyze-results-section">
+                      <h3><LightBulbIcon className="analyze-heading-icon" /> Gợi ý chỉnh sửa cụ thể ({suggestionsList.length})</h3>
+                      <div className="suggestions-list">
+                        {suggestionsList.map((s, i) => (
+                          <article key={i} className="suggestion-card">
+                            <header>
+                              <span className="suggestion-section">{s.section}</span>
+                              <span className="suggestion-issue">{s.issue}</span>
+                            </header>
+                            {s.current && (
+                              <div className="suggestion-row">
+                                <strong>Hiện tại:</strong>
+                                <p className="suggestion-current">{s.current}</p>
+                              </div>
+                            )}
+                            {s.suggested && (
+                              <div className="suggestion-row">
+                                <strong>Đề xuất:</strong>
+                                <p className="suggestion-suggested">{s.suggested}</p>
+                              </div>
+                            )}
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+
             {analysisResults?.analysis_meta?.source === 'generated_cv' && (
               <GeneratedCvAnalysisNote
                 meta={analysisResults.analysis_meta}
@@ -457,28 +595,6 @@ export default function GenerateCVPage() {
                   )}
                   {analysisResults.skills.extra?.length > 0 && (
                     <div className="skill-group"><h4>+ Bổ sung ({analysisResults.skills.extra.length})</h4><div className="skill-tags">{analysisResults.skills.extra.map((s, i) => <span key={i} className="skill-tag tag-extra">{s.name}</span>)}</div></div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {analysisResults?.insights && (
-              <div className="analyze-results-section">
-                <h3><LightBulbIcon className="analyze-heading-icon" /> Phân tích nâng cao</h3>
-                <div className="analyze-insights-grid">
-                  {analysisResults.insights.jd_evaluation && (
-                    <div className="insight-card">
-                      <h4>Phân tích JD</h4>
-                      <p><strong>Tóm tắt:</strong> {getJdEvaluationSummary(analysisResults.insights.jd_evaluation) || 'Chưa có dữ liệu'}</p>
-                      <p><strong>Nhận xét:</strong> {getJdEvaluationAdvice(analysisResults.insights.jd_evaluation) || 'Chưa có dữ liệu'}</p>
-                    </div>
-                  )}
-                  {analysisResults.insights.salary_negotiation && (
-                    <div className="insight-card">
-                      <h4>Đề xuất lương</h4>
-                      <p className="salary-range">{getSalaryRange(analysisResults.insights.salary_negotiation) || 'Chưa có dữ liệu'}</p>
-                      <p>{getSalaryAdvice(analysisResults.insights.salary_negotiation) || 'Chưa có dữ liệu'}</p>
-                    </div>
                   )}
                 </div>
               </div>

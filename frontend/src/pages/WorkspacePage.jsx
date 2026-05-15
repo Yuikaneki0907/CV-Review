@@ -30,12 +30,6 @@ import {
   loadWorkspaceDraft,
   saveWorkspaceDraft,
 } from '../utils/workspaceDraft';
-import {
-  getJdEvaluationAdvice,
-  getJdEvaluationSummary,
-  getSalaryAdvice,
-  getSalaryRange,
-} from '../utils/analysisInsights';
 import { notifyGeneratedCvHistoryChanged } from '../utils/generatedCvHistory';
 import { TEMPLATE_SKELETONS } from '../utils/templateSkeletons';
 
@@ -1523,87 +1517,156 @@ export default function WorkspacePage() {
               </div>
             </div>
           )}
-          {/* Analysis results cards */}
+          {/* Analysis results cards — new 5-dimension schema (events
+              from analyze_cv.py: scores / keyword_report / gap_analysis /
+              suggestions). Tolerates both SSE shape (overall_score) and
+              the non-stream legacy shape (.overall). */}
           {analysisResults?.scores && (
             <div className="chat-bubble-wrapper assistant">
               <div className="chat-bubble analysis-result-bubble">
-                <div className="analysis-scores-grid">
-                  <div className={`analysis-score-card large score-${analysisResults.scores.overall >= 80 ? 'green' : analysisResults.scores.overall >= 50 ? 'yellow' : 'red'}`}>
-                    <div className="score-value">{analysisResults.scores.overall}</div>
-                    <div className="score-label">Tổng điểm</div>
+                {(() => {
+                  const overall = analysisResults.scores.overall_score ?? analysisResults.scores.overall ?? 0;
+                  const verdict = analysisResults.scores.verdict;
+                  return (
+                    <div className="analysis-headline" style={{ marginBottom: '0.6rem' }}>
+                      <div className={`score-card large score-${overall >= 80 ? 'green' : overall >= 50 ? 'yellow' : 'red'}`}>
+                        <div className="score-value">{Math.round(overall)}</div>
+                        <div className="score-label">Tổng điểm</div>
+                      </div>
+                      {verdict && (
+                        <span className={`verdict-badge verdict-${String(verdict).toLowerCase()}`}>
+                          <strong>{verdict}</strong>
+                          <small>
+                            {verdict === 'PASS' ? 'Đạt yêu cầu'
+                              : verdict === 'BORDERLINE' ? 'Cận biên'
+                              : 'Chưa đạt'}
+                          </small>
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
+                {analysisResults.scores.dimension_scores && (
+                  <div className="dimension-grid">
+                    {[
+                      { k: 'relevance', label: 'Phù hợp với JD', w: 30 },
+                      { k: 'keyword_coverage', label: 'Phủ từ khoá', w: 25 },
+                      { k: 'achievement_quality', label: 'Chất lượng thành tích', w: 20 },
+                      { k: 'structure', label: 'Cấu trúc', w: 15 },
+                      { k: 'summary_alignment', label: 'Summary bám JD', w: 10 },
+                    ].map(({ k, label, w }) => {
+                      const dim = analysisResults.scores.dimension_scores[k];
+                      if (!dim) return null;
+                      const color = dim.score >= 80 ? 'green' : dim.score >= 50 ? 'yellow' : 'red';
+                      return (
+                        <div key={k} className={`dimension-card score-${color}`}>
+                          <div className="dimension-card-head">
+                            <span className="dimension-card-label">{label}</span>
+                            <span className="dimension-card-weight">{w}%</span>
+                          </div>
+                          <div className="dimension-card-score">{Math.round(dim.score ?? 0)}</div>
+                          {dim.reason && <p className="dimension-card-reason">{dim.reason}</p>}
+                        </div>
+                      );
+                    })}
                   </div>
-                  <div className={`analysis-score-card score-${analysisResults.scores.skills_score >= 80 ? 'green' : analysisResults.scores.skills_score >= 50 ? 'yellow' : 'red'}`}>
-                    <div className="score-value">{analysisResults.scores.skills_score}</div>
-                    <div className="score-label">Kỹ năng</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {analysisResults?.keyword_report && (
+            <div className="chat-bubble-wrapper assistant">
+              <div className="chat-bubble analysis-result-bubble">
+                <h4 style={{ margin: '0 0 0.4rem 0', fontSize: '0.92rem' }}>Phủ từ khoá JD</h4>
+                <div className="keyword-report">
+                  <div className="keyword-density">
+                    <span className={`density-pill ${analysisResults.keyword_report.density_ok ? 'density-ok' : 'density-low'}`}>
+                      {analysisResults.keyword_report.density_ok
+                        ? '✓ Mật độ từ khoá đạt ngưỡng ATS'
+                        : '⚠ Mật độ từ khoá dưới ngưỡng ATS'}
+                    </span>
                   </div>
-                  <div className={`analysis-score-card score-${analysisResults.scores.experience_score >= 80 ? 'green' : analysisResults.scores.experience_score >= 50 ? 'yellow' : 'red'}`}>
-                    <div className="score-value">{analysisResults.scores.experience_score}</div>
-                    <div className="score-label">Kinh nghiệm</div>
-                  </div>
-                  <div className={`analysis-score-card score-${analysisResults.scores.tools_score >= 80 ? 'green' : analysisResults.scores.tools_score >= 50 ? 'yellow' : 'red'}`}>
-                    <div className="score-value">{analysisResults.scores.tools_score}</div>
-                    <div className="score-label">Công cụ</div>
+                  <div className="keyword-cols">
+                    <div className="keyword-col">
+                      <h4>Có trong CV ({analysisResults.keyword_report.found?.length || 0})</h4>
+                      <div className="keyword-tags">
+                        {(analysisResults.keyword_report.found || []).map((kw, i) => (
+                          <span key={i} className="keyword-tag tag-matched">{kw}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="keyword-col">
+                      <h4>Thiếu so với JD ({analysisResults.keyword_report.missing?.length || 0})</h4>
+                      <div className="keyword-tags">
+                        {(analysisResults.keyword_report.missing || []).map((kw, i) => (
+                          <span key={i} className="keyword-tag tag-missing">{kw}</span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           )}
-          {analysisResults?.skills && (
+
+          {analysisResults?.gap_analysis && (
             <div className="chat-bubble-wrapper assistant">
               <div className="chat-bubble analysis-result-bubble">
-                <div className="analysis-skills-section">
-                  {analysisResults.skills.matched?.length > 0 && (
-                    <div className="skill-group">
-                      <h4>✓ Kỹ năng phù hợp</h4>
-                      <div className="skill-tags">
-                        {analysisResults.skills.matched.map((s, i) => (
-                          <span key={i} className="skill-tag tag-matched">{s.name}</span>
+                <h4 style={{ margin: '0 0 0.4rem 0', fontSize: '0.92rem' }}>Cần cải thiện</h4>
+                <div className="gap-analysis">
+                  {analysisResults.gap_analysis.critical_missing?.length > 0 && (
+                    <div className="gap-bucket gap-critical">
+                      <h4>Bắt buộc sửa ({analysisResults.gap_analysis.critical_missing.length})</h4>
+                      <ul>
+                        {analysisResults.gap_analysis.critical_missing.map((item, i) => (
+                          <li key={i}>{item}</li>
                         ))}
-                      </div>
+                      </ul>
                     </div>
                   )}
-                  {analysisResults.skills.missing?.length > 0 && (
-                    <div className="skill-group">
-                      <h4>✕ Kỹ năng thiếu</h4>
-                      <div className="skill-tags">
-                        {analysisResults.skills.missing.map((s, i) => (
-                          <span key={i} className="skill-tag tag-missing">{s.name}</span>
+                  {analysisResults.gap_analysis.improvable?.length > 0 && (
+                    <div className="gap-bucket gap-improvable">
+                      <h4>Có thể cải thiện ({analysisResults.gap_analysis.improvable.length})</h4>
+                      <ul>
+                        {analysisResults.gap_analysis.improvable.map((item, i) => (
+                          <li key={i}>{item}</li>
                         ))}
-                      </div>
-                    </div>
-                  )}
-                  {analysisResults.skills.extra?.length > 0 && (
-                    <div className="skill-group">
-                      <h4>+ Kỹ năng bổ sung</h4>
-                      <div className="skill-tags">
-                        {analysisResults.skills.extra.map((s, i) => (
-                          <span key={i} className="skill-tag tag-extra">{s.name}</span>
-                        ))}
-                      </div>
+                      </ul>
                     </div>
                   )}
                 </div>
               </div>
             </div>
           )}
-          {analysisResults?.insights && (
+
+          {analysisResults?.suggestions?.length > 0 && (
             <div className="chat-bubble-wrapper assistant">
               <div className="chat-bubble analysis-result-bubble">
-                <div className="analysis-insights">
-                  {analysisResults.insights.jd_evaluation && (
-                    <div className="insight-card">
-                      <h4>Phân tích JD</h4>
-                      <p><strong>Tóm tắt:</strong> {getJdEvaluationSummary(analysisResults.insights.jd_evaluation) || 'Chưa có dữ liệu'}</p>
-                      <p><strong>Nhận xét:</strong> {getJdEvaluationAdvice(analysisResults.insights.jd_evaluation) || 'Chưa có dữ liệu'}</p>
-                    </div>
-                  )}
-                  {analysisResults.insights.salary_negotiation && (
-                    <div className="insight-card">
-                      <h4>Đề xuất lương</h4>
-                      <p className="salary-range">{getSalaryRange(analysisResults.insights.salary_negotiation) || 'Chưa có dữ liệu'}</p>
-                      <p>{getSalaryAdvice(analysisResults.insights.salary_negotiation) || 'Chưa có dữ liệu'}</p>
-                    </div>
-                  )}
+                <h4 style={{ margin: '0 0 0.4rem 0', fontSize: '0.92rem' }}>
+                  Gợi ý chỉnh sửa cụ thể ({analysisResults.suggestions.length})
+                </h4>
+                <div className="suggestions-list">
+                  {analysisResults.suggestions.map((s, i) => (
+                    <article key={i} className="suggestion-card">
+                      <header>
+                        <span className="suggestion-section">{s.section}</span>
+                        <span className="suggestion-issue">{s.issue}</span>
+                      </header>
+                      {s.current && (
+                        <div className="suggestion-row">
+                          <strong>Hiện tại:</strong>
+                          <p className="suggestion-current">{s.current}</p>
+                        </div>
+                      )}
+                      {s.suggested && (
+                        <div className="suggestion-row">
+                          <strong>Đề xuất:</strong>
+                          <p className="suggestion-suggested">{s.suggested}</p>
+                        </div>
+                      )}
+                    </article>
+                  ))}
                 </div>
               </div>
             </div>
