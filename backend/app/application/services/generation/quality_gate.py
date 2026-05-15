@@ -25,7 +25,10 @@ logger = get_logger("app.application.services.generation.quality_gate")
 
 # TC2 in 4.1.5 requires overall_score >= 80 for system-generated CVs.
 DEFAULT_PASS_THRESHOLD = 80.0
-DEFAULT_MAX_REVISIONS = 1
+# Up to two bounded revise → re-analyze cycles. Trade-off: chat latency
+# (~3-6s extra per revision in real LLM, but we still cap aggressively
+# vs the dedicated improvement_loop's DEFAULT_MAX_ITERATIONS=3).
+DEFAULT_MAX_REVISIONS = 2
 
 
 @dataclass(frozen=True)
@@ -73,8 +76,9 @@ async def ensure_quality(
         ai_service: Concrete :class:`IAIService` implementation.
         pass_threshold: Score above which the gate passes immediately.
             Defaults to 80 to match TC2.
-        max_revisions: Hard cap on revise → re-analyze cycles. Default 1
-            (so the latency budget stays predictable; chat UX matters).
+        max_revisions: Hard cap on revise → re-analyze cycles. Default 2
+            to give the gate a real chance at converging while keeping
+            chat latency bounded.
         job_title / level: Optional context forwarded to the reviser.
         output_format: ``"markdown"`` or ``"docx"`` — echoed into the
             revise prompt.

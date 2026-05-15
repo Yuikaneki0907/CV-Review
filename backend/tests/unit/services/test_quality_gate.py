@@ -6,6 +6,10 @@ import unittest
 from typing import Any
 
 from app.application.services.generation import ensure_quality
+from app.application.services.generation.quality_gate import (
+    DEFAULT_MAX_REVISIONS,
+    DEFAULT_PASS_THRESHOLD,
+)
 from tests.unit.services.test_improvement_loop import (
     _LoopFakeAI,
     _REAL_CV_BODY,
@@ -16,6 +20,16 @@ from tests.unit.services.test_improvement_loop import (
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+class TestQualityGateDefaults(unittest.TestCase):
+    def test_default_pass_threshold_is_80(self) -> None:
+        self.assertEqual(DEFAULT_PASS_THRESHOLD, 80.0)
+
+    def test_default_max_revisions_is_two(self) -> None:
+        # Bumped from 1 → 2 in BE-3 to give the gate a real chance at
+        # converging without invoking the dedicated improve-loop.
+        self.assertEqual(DEFAULT_MAX_REVISIONS, 2)
 
 
 _JD_TEXT = (
